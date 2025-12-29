@@ -1,0 +1,2815 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>F1 Race Viewer</title>
+    <style>
+        /* Reset and base styles */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000000;
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            color: #FFFFFF;
+        }
+
+        /* Main Layout Container */
+        body {
+            display: flex;
+            flex-direction: row;
+            gap: 0;
+        }
+
+        /* Left Sidebar */
+        #sidebar {
+            width: 360px;
+            height: 100vh;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            z-index: 1000;
+            flex-shrink: 0;
+            gap: 0;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Center Body */
+        .body-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Body Header (Race Status) */
+        .body-header {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 80px;
+            padding: 20px;
+            background: transparent;
+        }
+
+        /* Body Main (Track) */
+        .body-main {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            padding: 20px;
+        }
+
+        /* Track Canvas */
+        #trackCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            cursor: default;
+        }
+
+        /* Body Footer (Race Selector) */
+        .body-footer {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 80px;
+            padding: 20px;
+            background: transparent;
+        }
+
+        /* Right Message Center */
+        .message-center {
+            width: 540px;
+            height: 100vh;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            z-index: 998;
+            flex-shrink: 0;
+        }
+
+        .sidebar-header {
+            display: none;
+        }
+
+        .header-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: nowrap;
+            justify-content: flex-start;
+        }
+
+        .speed-selector {
+            position: relative;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .speed-value {
+            display: inline-flex;
+            font-size: 11px;
+            font-weight: 600;
+            font-family: 'Courier New', monospace;
+            color: #CCCCCC;
+            background: rgba(255, 255, 255, 0.08);
+            padding: 5px 10px;
+            border-radius: 4px 0 0 4px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-right: none;
+            transition: all 0.2s ease;
+            align-items: center;
+            height: 28px;
+            min-width: 45px;
+            justify-content: center;
+        }
+
+        .speed-value:hover {
+            background: rgba(255, 255, 255, 0.12);
+            border-color: rgba(255, 255, 255, 0.35);
+            color: #FFFFFF;
+        }
+
+        .speed-dropdown {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            margin-top: 4px;
+            background: rgba(0, 0, 0, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            overflow: hidden;
+            z-index: 1001;
+            min-width: 70px;
+            backdrop-filter: blur(10px);
+        }
+
+        .speed-dropdown.open {
+            display: block;
+        }
+
+        .speed-option {
+            padding: 6px 12px;
+            font-size: 12px;
+            font-family: 'Courier New', monospace;
+            color: #CCCCCC;
+            cursor: pointer;
+            transition: background-color 0.15s ease;
+        }
+
+        .speed-option:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #FFFFFF;
+        }
+
+        .speed-option.selected {
+            color: #FFEE58;
+            background: rgba(255, 215, 0, 0.15);
+        }
+
+        .play-pause-btn {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 0 4px 4px 0;
+            border-left: none;
+            color: #CCCCCC;
+            cursor: pointer;
+            padding: 5px 10px;
+            font-size: 13px;
+            font-weight: 600;
+            line-height: 1;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 28px;
+            height: 28px;
+        }
+
+        .play-pause-btn:hover {
+            background: rgba(255, 255, 255, 0.12);
+            border-color: rgba(255, 255, 255, 0.35);
+            color: #FFFFFF;
+        }
+
+        .race-timer {
+            font-size: 28px;
+            font-weight: 700;
+            font-family: 'Courier New', monospace;
+            letter-spacing: 0.5px;
+            color: #FFFFFF;
+            line-height: 1.2;
+        }
+
+        .lap-counter {
+            font-size: 11px;
+            color: #999999;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            white-space: nowrap;
+            font-weight: 500;
+        }
+
+        .standings-wrapper {
+            position: relative;
+            width: 100%;
+        }
+
+        .standings-card {
+            display: flex;
+            flex-direction: column;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 8px;
+            overflow: hidden;
+            width: 100%;
+            max-height: fit-content;
+            position: relative;
+        }
+
+        .fastest-lap-indicators-overlay {
+            position: absolute;
+            top: 0;
+            left: 100%;
+            width: 90px;
+            height: 100%;
+            pointer-events: none;
+            z-index: 20;
+        }
+
+        .fastest-lap-indicator-item {
+            position: absolute;
+            display: none;
+            flex-direction: row;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 6px;
+            left: 8px;
+            pointer-events: auto;
+            --top-offset: 0px;
+            --row-height: 29px;
+            top: var(--top-offset);
+            height: var(--row-height);
+        }
+
+        .fastest-lap-indicator-item.active {
+            display: flex;
+        }
+
+        .fastest-lap-icon {
+            font-size: 16px;
+            color: #BB86FC;
+            line-height: 1;
+            flex-shrink: 0;
+        }
+
+        /* Hide icon when showing time */
+        .fastest-lap-indicator-item.showing-time .fastest-lap-icon {
+            display: none;
+        }
+
+        .fastest-lap-time {
+            font-size: 11px;
+            font-weight: 600;
+            color: #BB86FC;
+            font-family: 'Courier New', monospace;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .standings-header {
+            padding: 12px 14px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.05);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .standings-controls-row {
+            display: flex;
+            align-items: center;
+            gap: 0;
+            flex-wrap: nowrap;
+            justify-content: space-between;
+        }
+
+        .standings-controls {
+            display: flex;
+            align-items: center;
+            gap: 0;
+            flex-wrap: nowrap;
+        }
+
+        .standings-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: nowrap;
+        }
+
+        .standings-title {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
+            color: #888888;
+            margin: 0;
+        }
+
+        .standings-body {
+            overflow-y: auto;
+            overflow-x: hidden;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+
+        .standings-footer {
+            padding: 8px 14px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.03);
+            font-size: 10px;
+            color: #888888;
+            text-align: center;
+            min-height: 0;
+            flex-shrink: 0;
+        }
+
+        .driver-row {
+            display: flex;
+            align-items: center;
+            padding: 6px 14px;
+            font-size: 13px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            transition: background-color 0.15s;
+            position: relative;
+        }
+
+        .driver-row:hover {
+            background-color: rgba(255, 255, 255, 0.06);
+        }
+
+        .driver-position {
+            font-weight: 700;
+            font-size: var(--position-size, 10px);
+            color: #999999;
+            text-align: center;
+            flex-shrink: 0;
+            margin-right: var(--driver-position-margin, 8px);
+        }
+
+        .driver-color {
+            width: var(--driver-color-width, 3px);
+            height: var(--driver-color-height, 14px);
+            border-radius: 1.5px;
+            flex-shrink: 0;
+            margin-left: var(--driver-color-margin, 0);
+            margin-right: var(--driver-color-margin-right, 8px);
+        }
+
+        .driver-info {
+            display: flex;
+            align-items: center;
+            flex: 1;
+            margin-left: var(--driver-info-margin, 0);
+        }
+
+        .driver-header {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex: 1;
+        }
+
+        .driver-name {
+            font-weight: 600;
+            font-size: var(--driver-name-size, 13px);
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            color: #FFFFFF;
+            margin-left: var(--driver-name-margin, 0);
+        }
+
+        .driver-number {
+            font-size: var(--driver-number-size, 9px);
+            color: #777777;
+            font-weight: 500;
+            margin-left: var(--driver-number-margin, 2px);
+            flex-shrink: 0;
+        }
+
+        .driver-interval {
+            font-size: var(--time-size, 11px);
+            color: #888888;
+            font-family: 'Courier New', monospace;
+            flex-shrink: 0;
+            min-width: 50px;
+            text-align: right;
+            margin-left: auto;
+        }
+
+        .driver-row.leader .driver-interval {
+            color: #FFD700;
+        }
+
+        /* Messages Container */
+        .messages-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Race Control Messages */
+        .race-messages {
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            gap: 8px;
+            z-index: 998;
+            pointer-events: none;
+            overflow-y: auto;
+            overflow-x: hidden;
+            flex: 1;
+        }
+
+        .race-message {
+            background: rgba(0, 0, 0, 0.85);
+            border-radius: 6px;
+            padding: 10px 14px;
+            backdrop-filter: blur(10px);
+            animation: messageSlideIn 0.3s ease-out;
+            pointer-events: auto;
+            font-size: 13px;
+            color: #FFFFFF;
+            flex-shrink: 0;
+        }
+
+        .race-message.redflag {
+            color: #FF4444;
+            font-weight: 600;
+        }
+
+        .race-message.safetycar {
+            color: #FFD700;
+        }
+
+        .race-message.vsc {
+            color: #FFD700;
+            font-weight: 600;
+        }
+
+        @keyframes messageSlideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Pill Notifications for Severe Events */
+        .event-notifications {
+            display: flex;
+            gap: 12px;
+            z-index: 999;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: center;
+            max-width: 100%;
+        }
+
+        .event-pill {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 10px 18px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            backdrop-filter: blur(10px);
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            border: none;
+        }
+
+        .event-pill.hidden {
+            display: none;
+        }
+
+        /* Red Flag */
+        .event-pill.red-flag {
+            background: #FF4444;
+            color: #FFFFFF;
+        }
+
+        .event-pill.red-flag:hover {
+            background: #FF5555;
+            box-shadow: 0 6px 16px rgba(255, 68, 68, 0.4);
+        }
+
+        /* Safety Car */
+        .event-pill.safety-car {
+            background: #FFD700;
+            color: #000000;
+        }
+
+        .event-pill.safety-car:hover {
+            background: #FFEE58;
+            box-shadow: 0 6px 16px rgba(255, 215, 0, 0.4);
+        }
+
+        /* Virtual Safety Car */
+        .event-pill.vsc {
+            background: #FFA500;
+            color: #000000;
+        }
+
+        .event-pill.vsc:hover {
+            background: #FFB819;
+            box-shadow: 0 6px 16px rgba(255, 165, 0, 0.4);
+        }
+
+        /* Rain */
+        .event-pill.rain {
+            background: #1E90FF;
+            color: #FFFFFF;
+        }
+
+        .event-pill.rain:hover {
+            background: #3A9FFF;
+            box-shadow: 0 6px 16px rgba(30, 144, 255, 0.4);
+        }
+
+        /* Selector Controls (Below Track) */
+        #yearSelector,
+        #eventSelector {
+            background: none;
+            border: none;
+            color: #FFFFFF;
+            font-size: 16px;
+            cursor: pointer;
+            padding: 0;
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            font-weight: 600;
+            transition: opacity 0.2s ease;
+        }
+
+        #yearSelector:hover,
+        #eventSelector:hover {
+            opacity: 0.7;
+        }
+
+        .selector-controls {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            z-index: 998;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .selector-controls-actions {
+            display: none;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .selector-controls-actions.visible {
+            display: flex;
+        }
+
+        .action-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1.5px solid rgba(255, 255, 255, 0.3);
+            color: #FFFFFF;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+        }
+
+        .action-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255, 255, 255, 0.6);
+        }
+
+        .action-btn:active {
+            transform: scale(0.98);
+        }
+
+        .action-btn.cancel {
+            color: #CCCCCC;
+            border-color: rgba(204, 204, 204, 0.3);
+        }
+
+        .action-btn.cancel:hover {
+            background: rgba(204, 204, 204, 0.1);
+            border-color: rgba(204, 204, 204, 0.5);
+        }
+
+        .action-btn.load {
+            background: rgba(255, 215, 0, 0.1);
+            border-color: #FFD700;
+            color: #FFD700;
+        }
+
+        .action-btn.load:hover {
+            background: rgba(255, 215, 0, 0.15);
+            border-color: #FFEE58;
+            color: #FFEE58;
+            box-shadow: 0 0 12px rgba(255, 215, 0, 0.3);
+        }
+
+        /* Loading Status */
+        .loading-status {
+            display: none;
+            color: #FFD700;
+            font-size: 14px;
+            font-weight: 600;
+            z-index: 997;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        .loading-status.visible {
+            display: block;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; }
+        }
+
+        /* Selector Dropdown */
+        select {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1.5px solid rgba(255, 255, 255, 0.3);
+            color: #FFFFFF;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            transition: all 0.2s ease;
+            min-width: 140px;
+        }
+
+        select:hover {
+            border-color: rgba(255, 255, 255, 0.5);
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        select:focus {
+            outline: none;
+            border-color: rgba(255, 215, 0, 0.6);
+            background: rgba(255, 255, 255, 0.12);
+        }
+
+        select option {
+            background: #1a1a1a;
+            color: #FFFFFF;
+        }
+
+        select option:checked {
+            background: linear-gradient(rgba(255, 215, 0, 0.2), rgba(255, 215, 0, 0.2)), #1a1a1a;
+            color: #FFEE58;
+        }
+
+        /* Scrollbars */
+        .standings-container::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .standings-container::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+
+        .standings-container::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 3px;
+        }
+
+        .standings-container::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.5);
+        }
+
+        /* Race Progress Bar */
+        .race-progress-bar {
+            width: 100%;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            gap: 12px;
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .race-progress-track {
+            flex: 1;
+            height: 2px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 1px;
+            position: relative;
+            cursor: pointer;
+        }
+
+        .race-progress-fill {
+            height: 100%;
+            background: rgba(255, 255, 255, 0.5);
+            border-radius: 1px;
+            width: 0%;
+            pointer-events: none;
+        }
+
+        .race-progress-knob {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.7);
+            box-shadow: 0 0 8px rgba(255, 255, 255, 0.4), inset 0 0 4px rgba(0, 0, 0, 0.3);
+            cursor: grab;
+            position: absolute;
+            left: 0;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            transition: box-shadow 0.15s ease;
+            flex-shrink: 0;
+        }
+
+        .race-progress-knob:hover {
+            box-shadow: 0 0 12px rgba(255, 255, 255, 0.6), inset 0 0 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .race-progress-knob.dragging {
+            cursor: grabbing;
+            box-shadow: 0 0 16px rgba(255, 255, 255, 0.8), inset 0 0 4px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Follow Mode Controls */
+        .follow-mode-panel {
+            display: none;
+            flex-direction: column;
+            gap: 12px;
+            z-index: 998;
+            background: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 8px;
+            padding: 12px 16px;
+        }
+
+        .follow-mode-panel.visible {
+            display: flex;
+        }
+
+        .follow-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 4px;
+        }
+
+        .follow-title {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
+            color: #888888;
+        }
+
+        .close-chase-btn {
+            background: none;
+            border: none;
+            color: #FFFFFF;
+            cursor: pointer;
+            font-size: 16px;
+            padding: 0;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+
+        .close-chase-btn:hover {
+            color: #FFD700;
+            transform: scale(1.1);
+        }
+
+        .follow-controls {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .follow-driver-section {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex: 1;
+        }
+
+        .follow-driver-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .follow-driver-position {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: #888888;
+            min-width: 20px;
+        }
+
+        .follow-driver-name {
+            font-size: 14px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .follow-driver-number {
+            font-size: 11px;
+            font-weight: 600;
+            color: #AAAAAA;
+            letter-spacing: 0.2px;
+        }
+
+        .driver-nav-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .follow-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            color: #FFFFFF;
+            padding: 4px 6px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 700;
+            transition: all 0.15s ease;
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            width: 28px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .follow-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255, 255, 255, 0.4);
+            color: #FFD700;
+        }
+
+        .follow-btn:active {
+            transform: scale(0.95);
+        }
+
+        .follow-btn.next {
+            border-radius: 4px 4px 0 0;
+            border-bottom: none;
+        }
+
+        .follow-btn.prev {
+            border-radius: 0 0 4px 4px;
+            border-top: none;
+        }
+
+        .zoom-section {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex: 1;
+        }
+
+        .zoom-display {
+            font-size: 12px;
+            font-weight: 700;
+            color: #FFFFFF;
+            min-width: 44px;
+            text-align: center;
+            font-family: 'Courier New', monospace;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 4px 6px;
+            border-radius: 4px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .zoom-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .zoom-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            color: #FFFFFF;
+            padding: 4px 6px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 700;
+            transition: all 0.15s ease;
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            width: 28px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .zoom-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255, 255, 255, 0.4);
+            color: #FFD700;
+        }
+
+        .zoom-btn:active {
+            transform: scale(0.95);
+        }
+
+        .zoom-btn.plus {
+            border-radius: 4px 4px 0 0;
+            border-bottom: none;
+        }
+
+        .zoom-btn.minus {
+            border-radius: 0 0 4px 4px;
+            border-top: none;
+        }
+    </style>
+</head>
+<body>
+    <!-- Left Sidebar (Standings) -->
+    <div id="sidebar">
+        <div class="standings-wrapper">
+            <div class="standings-card">
+                <!-- Card Header: Controls and Race Info -->
+                <div class="standings-header">
+                    <!-- Row 1: Speed Selector + Play/Pause Button + Timer + Lap Counter -->
+                    <div class="standings-controls-row">
+                        <div class="standings-controls">
+                            <div class="speed-selector" id="speedSelector">
+                                <span class="speed-value" id="speedValue">1x</span>
+                                <div class="speed-dropdown">
+                                    <div class="speed-option" data-speed="0.25">0.25x</div>
+                                    <div class="speed-option" data-speed="0.5">0.5x</div>
+                                    <div class="speed-option selected" data-speed="1">1x</div>
+                                    <div class="speed-option" data-speed="2">2x</div>
+                                    <div class="speed-option" data-speed="5">5x</div>
+                                    <div class="speed-option" data-speed="10">10x</div>
+                                    <div class="speed-option" data-speed="20">20x</div>
+                                    <div class="speed-option" data-speed="50">50x</div>
+                                </div>
+                            </div>
+                            <button class="play-pause-btn" id="playPauseBtn">▶</button>
+                        </div>
+                        <div class="standings-info">
+                            <div class="race-timer" id="raceTimer">00:00:00</div>
+                            <div class="lap-counter" id="lapCounter">Lap 1 / 57</div>
+                        </div>
+                    </div>
+                    <!-- Row 2: Title -->
+                    <h3 class="standings-title">Live Standings</h3>
+                </div>
+
+                <!-- Card Body: Live Standings List -->
+                <div class="standings-body" id="standingsBody">
+                    <div id="standings">
+                        <!-- Standings will be populated by JavaScript -->
+                    </div>
+                </div>
+
+                <!-- Card Footer: Placeholder -->
+                <div class="standings-footer" id="standingsFooter">
+                    <!-- Footer content -->
+                </div>
+            </div>
+
+            <!-- Fastest Lap Indicators Overlay (sibling to card for proper overflow) -->
+            <div class="fastest-lap-indicators-overlay" id="fastestLapIndicatorsOverlay">
+                <!-- Indicators will be populated by JavaScript -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Center Body (Track, Controls) -->
+    <div class="body-container">
+        <!-- Header: Race Status / Event Notifications -->
+        <div class="body-header">
+            <div id="eventNotifications" class="event-notifications">
+                <div id="redFlagPill" class="event-pill red-flag hidden">Red Flag</div>
+                <div id="safetyCarPill" class="event-pill safety-car hidden">Safety Car</div>
+                <div id="vscPill" class="event-pill vsc hidden">Virtual Safety Car</div>
+                <div id="rainPill" class="event-pill rain hidden">Rain</div>
+            </div>
+        </div>
+
+        <!-- Main: Track Canvas -->
+        <div class="body-main">
+            <canvas id="trackCanvas"></canvas>
+        </div>
+
+        <!-- Footer: Race Selector / Follow Mode -->
+        <div class="body-footer">
+            <!-- Default: Year/Event Selector -->
+            <div class="selector-controls" id="selectorControls">
+                <select id="yearSelector"></select>
+                <select id="eventSelector"></select>
+                <div class="selector-controls-actions">
+                    <button class="action-btn cancel" id="cancelBtn">Cancel</button>
+                    <button class="action-btn load" id="loadBtn">Load</button>
+                </div>
+                <div class="loading-status" id="loadingStatus"></div>
+            </div>
+
+            <!-- Follow Mode: Driver Navigation + Zoom -->
+            <div class="follow-mode-panel" id="followModePanel">
+                <div class="follow-header">
+                    <div class="follow-title">Chase Menu</div>
+                    <button class="close-chase-btn" id="closeChaseBtn">✕</button>
+                </div>
+                <div class="follow-controls">
+                    <div class="follow-driver-section">
+                        <div class="follow-driver-info">
+                            <div class="follow-driver-position" id="followDriverPosition">1.</div>
+                            <div class="follow-driver-name" id="followDriverName">VERSTAPPEN</div>
+                            <div class="follow-driver-number" id="followDriverNumber">#1</div>
+                        </div>
+                        <div class="driver-nav-buttons">
+                            <button class="follow-btn next" id="nextDriverBtn">↑</button>
+                            <button class="follow-btn prev" id="prevDriverBtn">↓</button>
+                        </div>
+                    </div>
+                    <div class="zoom-section">
+                        <div class="zoom-display" id="zoomDisplay">0.1x</div>
+                        <div class="zoom-buttons">
+                            <button class="zoom-btn plus" id="zoomInBtn">+</button>
+                            <button class="zoom-btn minus" id="zoomOutBtn">−</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Race Progress Bar with Scrubbing -->
+        <div class="race-progress-bar" id="raceProgressBar">
+            <div class="race-progress-track" id="raceProgressTrack">
+                <div class="race-progress-fill" id="raceProgressFill"></div>
+                <div class="race-progress-knob" id="raceProgressKnob"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right Message Center (Race Control Messages) -->
+    <div class="message-center">
+        <div class="messages-container">
+            <div id="raceMessages" class="race-messages"></div>
+        </div>
+    </div>
+
+    <script>
+        // Detect current race: Flask pre-loaded session > URL params > defaults
+        const urlParams = new URLSearchParams(window.location.search);
+
+        // Flask passes current session year/round if loaded via manager.race()
+        const YEAR = {% if year %}{{ year }}{% else %}null{% endif %} || parseInt(urlParams.get('year')) || 2024;
+        const ROUND = {% if round %}{{ round }}{% else %}null{% endif %} || parseInt(urlParams.get('round')) || 24;
+        const SESSION_TYPE = urlParams.get('session') || 'R';
+
+        // UI Settings - Customize appearance of standings
+        const STANDINGS_SETTINGS = {
+            // Font sizes
+            positionSize: '10px',
+            driverNameSize: '13px',
+            driverNumberSize: '9px',
+            timeSize: '11px',
+
+            // Color bar sizing
+            driverColorWidth: '3px',
+            driverColorHeight: '14px',
+
+            // Spacing (margins)
+            driverColorMargin: '0px',
+            driverColorMarginRight: '8px',
+            driverNameMargin: '0px',
+            driverNumberMargin: '2px',
+            driverPositionMargin: '8px',
+        };
+
+        // Track Status State Manager - Single Source of Truth
+        class TrackStatus {
+            constructor() {
+                this.redFlag = false;
+                this.blueFlag = false;
+                this.yellowSectors = new Set();
+                this.lastLoggedEventIndex = -1;
+            }
+
+            setRedFlag(value) {
+                if (this.redFlag === value) return false;
+                this.redFlag = value;
+                return true;
+            }
+
+            setBlueFlag(value) {
+                if (this.blueFlag === value) return false;
+                this.blueFlag = value;
+                return true;
+            }
+
+            addYellowSector(sectorNum) {
+                if (this.yellowSectors.has(sectorNum)) return false;
+                this.yellowSectors.add(sectorNum);
+                return true;
+            }
+
+            removeYellowSector(sectorNum) {
+                if (!this.yellowSectors.has(sectorNum)) return false;
+                this.yellowSectors.delete(sectorNum);
+                return true;
+            }
+
+            clearAll() {
+                const changed = this.redFlag || this.blueFlag || this.yellowSectors.size > 0;
+                this.redFlag = false;
+                this.blueFlag = false;
+                this.yellowSectors.clear();
+                return changed;
+            }
+
+            getGlobalStatus() {
+                if (this.redFlag) return 'RED';
+                if (this.blueFlag) return 'BLUE';
+                if (this.yellowSectors.size > 0) return 'YELLOW';
+                return 'CLEAR';
+            }
+
+            getSectorList() {
+                return Array.from(this.yellowSectors).sort((a, b) => a - b).join(', ');
+            }
+
+            logStatusChange(eventTime, message) {
+                const sectorList = this.getSectorList();
+                const status = this.getGlobalStatus();
+
+                let logMsg = `[STATUS ${eventTime.toFixed(1)}s] ${message}`;
+                if (status === 'RED') {
+                    logMsg += ' → RED FLAG';
+                } else if (status === 'BLUE') {
+                    logMsg += ' → BLUE FLAG';
+                } else if (status === 'YELLOW' && sectorList) {
+                    logMsg += ` → YELLOW sectors: ${sectorList}`;
+                } else if (status === 'YELLOW') {
+                    logMsg += ' → YELLOW FLAG';
+                } else {
+                    logMsg += ' → CLEAR';
+                }
+                console.log(logMsg);
+            }
+        }
+
+        // Race Control Message Manager - Single Source of Truth for Race Control Events
+        class RaceControl {
+            constructor() {
+                this.messages = [];  // Array of {time, message, element, timeoutId}
+                this.lastLoggedEventIndex = -1;
+                this.messagesContainer = null;
+            }
+
+            setContainer(containerEl) {
+                this.messagesContainer = containerEl;
+            }
+
+            addMessage(time, message) {
+                // Create message element
+                const msgEl = document.createElement('div');
+                msgEl.className = 'race-message';
+
+                // Determine styling based on content
+                const text = (message || '').toUpperCase();
+                if (text.includes('RED')) {
+                    msgEl.classList.add('redflag');
+                } else if (text.includes('YELLOW')) {
+                    msgEl.classList.add('flag');
+                } else if (text.includes('SAFETY') && !text.includes('VIRTUAL')) {
+                    msgEl.classList.add('safetycar');
+                } else if (text.includes('VIRTUAL')) {
+                    msgEl.classList.add('vsc');
+                }
+
+                msgEl.innerHTML = `
+                    <div style="font-size: 0.8em; color: #aaa;">${this.formatTime(time)}</div>
+                    <div style="font-size: 0.9em;">${message}</div>
+                `;
+
+                // Add to beginning so newest messages appear at top
+                if (this.messagesContainer) {
+                    this.messagesContainer.insertBefore(msgEl, this.messagesContainer.firstChild);
+                }
+
+                // Setup auto-removal
+                const fadeOutTime = 4500;
+                const removeTime = 5000;
+
+                const fadeoutTimeout = setTimeout(() => {
+                    msgEl.style.opacity = '0';
+                    msgEl.style.transform = 'translateX(20px)';
+                }, fadeOutTime);
+
+                const removeTimeout = setTimeout(() => {
+                    msgEl.remove();
+                    // Remove from tracking array
+                    this.messages = this.messages.filter(m => m.element !== msgEl);
+                }, removeTime);
+
+                // Track message
+                const messageObj = { time, message, element: msgEl, timeoutId: removeTimeout };
+                this.messages.push(messageObj);
+
+                // Limit to max 6 visible messages
+                const allMessages = this.messagesContainer?.querySelectorAll('.race-message') || [];
+                if (allMessages.length > 6) {
+                    allMessages[allMessages.length - 1].remove();
+                }
+
+                return messageObj;
+            }
+
+            displayStatusMessage(time, message) {
+                // Display status message without logging (logging is handled by TrackStatus)
+                return this.addMessage(time, message);
+            }
+
+            logMessage(time, message) {
+                console.log(`[RACE CONTROL ${time.toFixed(1)}s] ${message}`);
+            }
+
+            getCurrentMessages() {
+                return this.messages.map(m => ({ time: m.time, message: m.message }));
+            }
+
+            formatTime(sec) {
+                const mins = Math.floor(sec / 60);
+                const secs = Math.floor(sec % 60);
+                return `${mins}:${secs.toString().padStart(2, '0')}`;
+            }
+        }
+
+        class F1RaceViewer {
+            constructor() {
+                // Apply settings as CSS variables
+                this.applySettings();
+
+                this.canvas = document.getElementById('trackCanvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.setupCanvas();
+
+                // State
+                this.isPlaying = false;
+                this.playSpeed = 1;
+                this.currentTime = 0;
+                this.maxTime = 0;
+
+                // Data
+                this.weekendData = null;
+                this.sessionData = null;
+                this.trackData = null;
+                this.pitLaneData = null;
+                this.drivers = [];
+                this.rainEvents = [];
+                this.telemetryIndexCache = {};  // Cache last index for each driver
+                this.previousPositions = null;  // Cache positions for comparison
+                this.previousChaseMode = null;  // Track previous chase mode for styling updates
+
+                // Track rendering
+                this.trackColor = '#FFFFFF';
+                this.bounds = null;
+                this.scale = 1;
+                this.offsetX = 0;
+                this.offsetY = 0;
+                this.rotation = 0;
+                this.trackStatus = new TrackStatus();  // State manager for track flags
+                this.raceControl = new RaceControl();  // State manager for race control messages
+
+                // Message tracking
+                this.displayedMessageIds = new Set();
+                this.displayedEventPills = new Set();
+                this.trackStatusEvents = [];
+                this.raceControlEvents = [];
+                this.lastMessageIndexTrackStatus = 0;  // Cache last processed index
+                this.lastMessageIndexRaceControl = 0;  // Cache last processed index
+                this.lastLoggedTrackStatusIndex = -1;  // Track last logged track status event
+
+                // Active event states
+                this.activeEvents = {
+                    redFlag: false,
+                    safetyCar: false,
+                    vsc: false,
+                    rain: false
+                };
+
+                // Time tracking for messages
+                this.previousTime = -Infinity;
+
+                // Selector state
+                this.seasonsData = null;
+                this.currentYear = YEAR;
+                this.currentRound = ROUND;
+                this.selectedYear = YEAR;
+                this.selectedRound = ROUND;
+                this.isLoading = false;
+
+                // Cache for total laps calculation
+                this.cachedTotalLaps = null;
+
+                // Progress bar state
+                this.isDraggingKnob = false;
+
+                // Blue flag tracking (car number -> time waved)
+                this.activeBlueFlagCars = {};
+
+                // Fastest lap tracking
+                this.currentFastestLapDriver = null;  // Driver code with fastest lap
+                this.lastProcessedFastestLapIndex = -1;  // Track which fastest lap events we've already processed
+
+                // Chase mode state (null = overview mode, driver code = chasing that driver)
+                this.chaseMode = null;
+                this.currentZoom = 0.1;  // Zoom level in follow mode (0.1 = full map, no zoom)
+
+                // Initialize
+                this.setupEventListeners();
+                this.loadSeasons();
+                this.loadData();
+
+                // Animation loop
+                this.lastFrameTime = Date.now();
+                requestAnimationFrame(() => this.animate());
+            }
+
+            setupCanvas() {
+                const dpr = window.devicePixelRatio || 1;
+                const rect = this.canvas.getBoundingClientRect();
+                this.canvas.width = rect.width * dpr;
+                this.canvas.height = rect.height * dpr;
+                this.ctx.scale(dpr, dpr);
+                this.canvas.style.width = rect.width + 'px';
+                this.canvas.style.height = rect.height + 'px';
+            }
+
+            applySettings() {
+                // Apply settings as CSS variables to the standings card
+                const root = document.documentElement;
+
+                // Font sizes
+                root.style.setProperty('--position-size', STANDINGS_SETTINGS.positionSize);
+                root.style.setProperty('--driver-name-size', STANDINGS_SETTINGS.driverNameSize);
+                root.style.setProperty('--driver-number-size', STANDINGS_SETTINGS.driverNumberSize);
+                root.style.setProperty('--time-size', STANDINGS_SETTINGS.timeSize);
+
+                // Color bar
+                root.style.setProperty('--driver-color-width', STANDINGS_SETTINGS.driverColorWidth);
+                root.style.setProperty('--driver-color-height', STANDINGS_SETTINGS.driverColorHeight);
+
+                // Margins
+                root.style.setProperty('--driver-position-margin', STANDINGS_SETTINGS.driverPositionMargin);
+                root.style.setProperty('--driver-color-margin', STANDINGS_SETTINGS.driverColorMargin);
+                root.style.setProperty('--driver-color-margin-right', STANDINGS_SETTINGS.driverColorMarginRight);
+                root.style.setProperty('--driver-name-margin', STANDINGS_SETTINGS.driverNameMargin);
+                root.style.setProperty('--driver-number-margin', STANDINGS_SETTINGS.driverNumberMargin);
+            }
+
+            setupEventListeners() {
+                document.getElementById('playPauseBtn').addEventListener('click', () => this.togglePlayPause());
+                document.getElementById('speedSelector').addEventListener('click', (e) => this.handleSpeedChange(e));
+
+                // Close speed dropdown when clicking outside
+                document.addEventListener('click', (e) => {
+                    const speedSelector = document.getElementById('speedSelector');
+                    if (!speedSelector.contains(e.target)) {
+                        speedSelector.querySelector('.speed-dropdown').classList.remove('open');
+                    }
+                });
+
+                window.addEventListener('resize', () => {
+                    this.setupCanvas();
+                    this.render();
+                });
+
+                // Progress bar events
+                const knob = document.getElementById('raceProgressKnob');
+                const track = document.getElementById('raceProgressTrack');
+
+                knob.addEventListener('mousedown', (e) => this.startKnobDrag(e));
+                document.addEventListener('mousemove', (e) => this.handleKnobDrag(e));
+                document.addEventListener('mouseup', () => this.endKnobDrag());
+
+                // Click on track to seek
+                track.addEventListener('click', (e) => this.seekToClick(e));
+
+                // Selector events
+                document.getElementById('yearSelector').addEventListener('change', () => this.onYearChanged());
+                document.getElementById('eventSelector').addEventListener('change', () => this.onEventChanged());
+                document.getElementById('cancelBtn').addEventListener('click', () => this.onCancel());
+                document.getElementById('loadBtn').addEventListener('click', () => this.onLoad());
+
+                // Follow mode events
+                document.getElementById('prevDriverBtn').addEventListener('click', () => this.switchDriver(-1));
+                document.getElementById('nextDriverBtn').addEventListener('click', () => this.switchDriver(1));
+                document.getElementById('zoomInBtn').addEventListener('click', () => this.adjustZoom(0.1));
+                document.getElementById('zoomOutBtn').addEventListener('click', () => this.adjustZoom(-0.1));
+                document.getElementById('closeChaseBtn').addEventListener('click', () => this.exitFollowMode());
+            }
+
+            async loadSeasons() {
+                try {
+                    const resp = await fetch('/api/seasons');
+                    this.seasonsData = await resp.json();
+                    this.populateSelectors();
+                } catch (e) {
+                    console.error('Failed to load seasons:', e);
+                }
+            }
+
+            populateSelectors() {
+                if (!this.seasonsData) return;
+
+                const seasons = this.seasonsData.seasons;
+                const yearSelect = document.getElementById('yearSelector');
+                const eventSelect = document.getElementById('eventSelector');
+
+                // Populate years
+                yearSelect.innerHTML = '';
+                Object.keys(seasons).sort().reverse().forEach(year => {
+                    const option = document.createElement('option');
+                    option.value = year;
+                    option.textContent = year;
+                    if (parseInt(year) === this.currentYear) {
+                        option.selected = true;
+                    }
+                    yearSelect.appendChild(option);
+                });
+
+                // Populate events for current year
+                this.updateEventSelector();
+            }
+
+            updateEventSelector() {
+                if (!this.seasonsData) return;
+
+                const seasons = this.seasonsData.seasons;
+                const yearSelect = document.getElementById('yearSelector');
+                const eventSelect = document.getElementById('eventSelector');
+                const selectedYear = parseInt(yearSelect.value);
+
+                eventSelect.innerHTML = '';
+                const year = seasons[selectedYear];
+                if (year && year.rounds) {
+                    year.rounds.forEach(round => {
+                        const option = document.createElement('option');
+                        option.value = round.round;
+                        option.textContent = round.event_name;
+                        if (round.round === this.selectedRound) {
+                            option.selected = true;
+                        }
+                        eventSelect.appendChild(option);
+                    });
+                }
+            }
+
+            onYearChanged() {
+                const yearSelect = document.getElementById('yearSelector');
+                this.selectedYear = parseInt(yearSelect.value);
+                this.updateEventSelector();
+                this.updateActionButtons();
+            }
+
+            onEventChanged() {
+                const eventSelect = document.getElementById('eventSelector');
+                this.selectedRound = parseInt(eventSelect.value);
+                this.updateActionButtons();
+            }
+
+            updateActionButtons() {
+                const hasChanges = this.selectedYear !== this.currentYear || this.selectedRound !== this.currentRound;
+                const actionsDiv = document.querySelector('.selector-controls-actions');
+                if (hasChanges) {
+                    actionsDiv.classList.add('visible');
+                } else {
+                    actionsDiv.classList.remove('visible');
+                }
+            }
+
+            onCancel() {
+                this.selectedYear = this.currentYear;
+                this.selectedRound = this.currentRound;
+                document.getElementById('yearSelector').value = this.currentYear;
+                document.getElementById('eventSelector').value = this.currentRound;
+                this.updateEventSelector();
+                this.updateActionButtons();
+            }
+
+            async onLoad() {
+                if (this.isLoading) return;
+                this.isLoading = true;
+
+                const loadingStatus = document.getElementById('loadingStatus');
+                const yearSelect = document.getElementById('yearSelector');
+                const eventSelect = document.getElementById('eventSelector');
+                const actionsDiv = document.querySelector('.selector-controls-actions');
+                const eventName = document.querySelector('#eventSelector option:checked').textContent;
+                const year = this.selectedYear;
+
+                // Hide selectors and action buttons, show loading message
+                yearSelect.style.display = 'none';
+                eventSelect.style.display = 'none';
+                actionsDiv.style.display = 'none';
+                loadingStatus.textContent = `Loading ${eventName} (${year})...`;
+                loadingStatus.classList.add('visible');
+
+                // Preload the new event data
+                try {
+                    await Promise.all([
+                        fetch(`/api/weekend/${this.selectedYear}/${this.selectedRound}`),
+                        fetch(`/api/session/${this.selectedYear}/${this.selectedRound}/R`)
+                    ]);
+
+                    // Data loaded, refresh with new race
+                    const newUrl = `${window.location.pathname}?year=${this.selectedYear}&round=${this.selectedRound}`;
+                    window.location.href = newUrl;
+                } catch (e) {
+                    console.error('Failed to load new event:', e);
+                    loadingStatus.classList.remove('visible');
+                    yearSelect.style.display = 'block';
+                    eventSelect.style.display = 'block';
+                    actionsDiv.style.display = 'flex';
+                    this.isLoading = false;
+                    this.updateActionButtons();
+                }
+            }
+
+            async loadData() {
+                try {
+                    console.log(`Loading race ${YEAR} round ${ROUND}...`);
+
+                    // Fetch weekend and session data in parallel
+                    const telemetryFields = ['session_time', 'LapNumber', 'X', 'Y', 'Distance', 'progress', 'TimeToDriverAhead', 'status'];
+                    const [weekendResp, sessionResp] = await Promise.all([
+                        fetch(`/api/weekend/${YEAR}/${ROUND}`),
+                        fetch(`/api/session/${YEAR}/${ROUND}/${SESSION_TYPE}?telemetry_fields=${telemetryFields.join(',')}`)
+                    ]);
+
+                    this.weekendData = await weekendResp.json();
+                    this.sessionData = await sessionResp.json();
+
+                    this.initializeFromData();
+                    this.render();
+
+                    // Auto-play on load
+                    this.isPlaying = true;
+                    this.updatePlayPauseButton();
+                    console.log('Race auto-playing...');
+                } catch (e) {
+                    console.error('Failed to load data:', e);
+                    alert('Failed to load race data: ' + e.message);
+                }
+            }
+
+            initializeFromData() {
+                // Track (include distance for sector-based coloring)
+                const track = this.weekendData.circuit.track;
+                this.trackData = { x: track.x, y: track.y, distance: track.distance };
+                console.log(`Track loaded: ${track.x.length} points, circuit_length=${this.sessionData.metadata.track_length}m`);
+
+                if (this.weekendData.circuit.pit_lane) {
+                    this.pitLaneData = this.weekendData.circuit.pit_lane;
+                }
+
+                // Rotation (convert degrees to radians)
+                this.rotation = (this.weekendData.circuit.rotation || 0) * Math.PI / 180;
+                console.log(`Rotation: ${this.rotation.toFixed(4)} rad (${(this.rotation * 180 / Math.PI).toFixed(1)}°)`);
+
+                // Track status events (ensure they're arrays)
+                this.trackStatusEvents = Array.isArray(this.sessionData.events?.track_status)
+                    ? this.sessionData.events.track_status
+                    : [];
+                this.raceControlEvents = Array.isArray(this.sessionData.events?.race_control)
+                    ? this.sessionData.events.race_control
+                    : [];
+
+                // Reset message processing indices
+                this.lastMessageIndexTrackStatus = 0;
+                this.lastMessageIndexRaceControl = 0;
+                this.lastLoggedTrackStatusIndex = -1;
+                this.displayedMessageIds.clear();
+                this.cachedTotalLaps = null;  // Reset lap cache for new session
+                this.activeBlueFlagCars = {};  // Reset blue flags for new session
+
+                // Setup RaceControl message container
+                const messagesContainer = document.getElementById('raceMessages');
+                this.raceControl.setContainer(messagesContainer);
+
+                // Flash state for VSC
+                this.flashState = false;
+                this.flashInterval = null;
+
+                // Max time from telemetry (use last element since arrays are sorted)
+                let maxTime = 0;
+                for (const driver in this.sessionData.telemetry) {
+                    const tel = this.sessionData.telemetry[driver];
+                    if (tel.session_time && tel.session_time.length > 0) {
+                        // session_time is sorted, so last element is max
+                        const lastTime = tel.session_time[tel.session_time.length - 1];
+                        if (lastTime > maxTime) maxTime = lastTime;
+                    }
+                }
+                this.maxTime = maxTime;
+
+                // Initialize progress bar
+                this.updateProgressBar();
+
+                // Rain events
+                this.rainEvents = this.sessionData.rain_events || [];
+
+                // Build drivers
+                const dnfList = this.sessionData.metadata.dnf_drivers || [];
+                this.drivers = this.sessionData.metadata.drivers.map(code => {
+                    const info = this.sessionData.metadata.driver_info[code] || {};
+                    let color = info.color || '#CCCCCC';
+                    // Add '#' prefix if missing
+                    if (color && !color.startsWith('#')) {
+                        color = '#' + color;
+                    }
+                    const dnf = dnfList.includes(code);
+                    return {
+                        code,
+                        color,
+                        number: info.number || 0,
+                        name: info.name || code,  // Full name from FastF1 data
+                        telemetry: this.sessionData.telemetry[code] || { session_time: [] },
+                        dnf: dnf
+                    };
+                });
+
+                if (dnfList.length > 0) {
+                    console.log(`DNF drivers: ${dnfList.join(', ')}`);
+                }
+
+                this.initializeFastestLapOverlay();
+                this.updateStandings();
+                this.updateTrackStatus();
+            }
+
+            initializeFastestLapOverlay() {
+                // Create indicator placeholders in the overlay for all drivers
+                const overlay = document.getElementById('fastestLapIndicatorsOverlay');
+                overlay.innerHTML = '';
+
+                this.drivers.forEach(driver => {
+                    const indicator = document.createElement('div');
+                    indicator.className = 'fastest-lap-indicator-item';
+                    indicator.dataset.driver = driver.code;
+                    indicator.innerHTML = `
+                        <span class="fastest-lap-icon">⏱</span>
+                    `;
+                    overlay.appendChild(indicator);
+                });
+            }
+
+            updateFastestLapIndicatorPositions() {
+                // Update positions of indicators to match driver rows
+                const standings = document.getElementById('standings');
+                const driverRows = standings.querySelectorAll('.driver-row');
+                const wrapper = document.querySelector('.standings-wrapper');
+                if (!wrapper) return;
+
+                const wrapperRect = wrapper.getBoundingClientRect();
+
+                driverRows.forEach(row => {
+                    const driver = row.dataset.driver;
+                    const indicator = document.querySelector(`.fastest-lap-indicator-item[data-driver="${driver}"]`);
+
+                    if (indicator && row) {
+                        const rowRect = row.getBoundingClientRect();
+                        const rowTop = rowRect.top - wrapperRect.top;
+                        indicator.style.setProperty('--top-offset', rowTop + 'px');
+                        indicator.style.setProperty('--row-height', rowRect.height + 'px');
+                    }
+                });
+            }
+
+            updateTrackStatus() {
+                // Process track status events and update the TrackStatus state object
+                if (!Array.isArray(this.trackStatusEvents)) {
+                    this.updateTrackColor();
+                    return;
+                }
+
+                // Process events up to current time
+                for (let eventIndex = 0; eventIndex < this.trackStatusEvents.length; eventIndex++) {
+                    const event = this.trackStatusEvents[eventIndex];
+                    if (event && event.session_time <= this.currentTime) {
+                        const status = (event.status || '').toUpperCase();
+                        const message = event.message || '';
+
+                        // Process event only if it's new
+                        if (eventIndex <= this.trackStatus.lastLoggedEventIndex) {
+                            continue;
+                        }
+
+                        let changed = false;
+
+                        if (status === 'RED' || status === 'RED FLAG') {
+                            // Red flag overrides everything
+                            changed |= this.trackStatus.setRedFlag(true);
+                            changed |= this.trackStatus.setBlueFlag(false);
+                            if (this.trackStatus.yellowSectors.size > 0) {
+                                this.trackStatus.yellowSectors.clear();
+                                changed = true;
+                            }
+                        } else if (status === 'BLUE') {
+                            // Blue flag on specific car - extract car number from message
+                            // Message format: "WAVED BLUE FLAG FOR CAR 77 (BOT)"
+                            const carMatch = message.match(/CAR\s+(\d+)/i);
+                            if (carMatch) {
+                                const carNumber = parseInt(carMatch[1]);
+                                this.activeBlueFlagCars[carNumber] = event.session_time;
+                                changed = true;
+                            }
+                        } else if (status === 'YELLOW' || status === 'DOUBLE YELLOW') {
+                            // Yellow flag (unless red flag active)
+                            if (!this.trackStatus.redFlag) {
+                                const sectorMatch = message.match(/SECTOR\s+(\d+)/i);
+                                if (sectorMatch) {
+                                    changed |= this.trackStatus.addYellowSector(parseInt(sectorMatch[1]));
+                                }
+                            }
+                        } else if (status === 'CLEAR' || status === 'GREEN') {
+                            // Handle sector-specific clears vs global clears
+                            const sectorMatch = message.match(/SECTOR\s+(\d+)/i);
+                            const isTrackClear = message.includes('TRACK CLEAR');
+
+                            if (isTrackClear) {
+                                // TRACK CLEAR: clears all flags and sectors
+                                changed |= this.trackStatus.setRedFlag(false);
+                                if (Object.keys(this.activeBlueFlagCars).length > 0) {
+                                    this.activeBlueFlagCars = {};
+                                    changed = true;
+                                }
+                                if (this.trackStatus.yellowSectors.size > 0) {
+                                    this.trackStatus.yellowSectors.clear();
+                                    changed = true;
+                                }
+                            } else if (sectorMatch && !this.trackStatus.redFlag) {
+                                // Sector-specific clear: only works if no red flag
+                                const sector = parseInt(sectorMatch[1]);
+                                changed |= this.trackStatus.removeYellowSector(sector);
+                            } else if (!sectorMatch && !this.trackStatus.redFlag) {
+                                // Global clear: only if no red flag
+                                if (this.trackStatus.yellowSectors.size > 0) {
+                                    this.trackStatus.yellowSectors.clear();
+                                    changed = true;
+                                }
+                            }
+                        }
+
+                        // Log and display only new events that caused changes
+                        if (changed) {
+                            this.trackStatus.logStatusChange(event.session_time, event.message);
+                            // Display to user via RaceControl (no extra logging)
+                            this.raceControl.displayStatusMessage(event.session_time, event.message);
+                            this.trackStatus.lastLoggedEventIndex = eventIndex;
+                        }
+                    }
+                }
+
+                // Update visual representation based on state
+                this.updateTrackColor();
+            }
+
+            updateTrackColor() {
+                // Update track color based on current track status state
+                const globalStatus = this.trackStatus.getGlobalStatus();
+
+                // Clear any existing flash interval
+                if (this.flashInterval) clearInterval(this.flashInterval);
+
+                // Set track color based on global status (note: blue flags no longer change track color)
+                switch (globalStatus) {
+                    case 'RED':
+                        this.trackColor = '#FF0000';
+                        this.flashState = false;
+                        break;
+                    case 'YELLOW':
+                        // Yellow flags are sector-specific
+                        this.trackColor = '#FFFFFF';
+                        this.flashState = false;
+                        break;
+                    case 'CLEAR':
+                    default:
+                        this.trackColor = '#FFFFFF';
+                        this.flashState = false;
+                }
+            }
+
+            cleanupExpiredBlueFlags() {
+                // Remove blue flags older than 5 seconds
+                const currentTime = this.currentTime;
+                for (const carNum in this.activeBlueFlagCars) {
+                    const flagTime = this.activeBlueFlagCars[carNum];
+                    if (currentTime - flagTime > 5) {
+                        delete this.activeBlueFlagCars[carNum];
+                    }
+                }
+            }
+
+            toggleChaseMode(driverCode) {
+                // Toggle chase mode: if already chasing this driver, disable; otherwise enable
+                if (this.chaseMode === driverCode) {
+                    this.chaseMode = null;  // Return to overview mode
+                } else {
+                    this.chaseMode = driverCode;  // Enter chase mode for this driver
+                }
+                this.updateFollowMode();  // Update follow mode panel
+                this.updateStandings();  // Update styling
+            }
+
+            updateFollowMode() {
+                const followModePanel = document.getElementById('followModePanel');
+                const selectorControls = document.getElementById('selectorControls');
+
+                if (this.chaseMode) {
+                    // In follow mode - show follow panel, hide selectors
+                    followModePanel.classList.add('visible');
+                    selectorControls.style.display = 'none';
+
+                    // Update driver info display
+                    const positions = this.getDriversAtTime();
+                    const currentPosition = positions.findIndex(p => p.code === this.chaseMode) + 1;
+                    const driver = this.drivers.find(d => d.code === this.chaseMode);
+
+                    if (driver) {
+                        // Update position
+                        document.getElementById('followDriverPosition').textContent = currentPosition + '.';
+
+                        // Update name with team color
+                        const driverNameEl = document.getElementById('followDriverName');
+                        driverNameEl.textContent = driver.name;
+                        driverNameEl.style.color = driver.color;
+
+                        // Update number
+                        document.getElementById('followDriverNumber').textContent = '#' + driver.number;
+                    }
+
+                    // Reset zoom when entering follow mode
+                    this.currentZoom = 0.1;
+                    this.updateZoomDisplay();
+                } else {
+                    // Not in follow mode - show selectors, hide follow panel
+                    followModePanel.classList.remove('visible');
+                    selectorControls.style.display = 'flex';
+                }
+            }
+
+            switchDriver(direction) {
+                if (!this.chaseMode) return;
+
+                const positions = this.getDriversAtTime();
+                const currentIndex = positions.findIndex(p => p.code === this.chaseMode);
+
+                if (currentIndex === -1) return;
+
+                // Calculate next index (wrap around at boundaries)
+                // Positive direction = up arrow = move to lower index (higher position)
+                let nextIndex = currentIndex - direction;
+                if (nextIndex < 0) nextIndex = positions.length - 1;
+                if (nextIndex >= positions.length) nextIndex = 0;
+
+                const nextDriver = positions[nextIndex];
+                this.chaseMode = nextDriver.code;
+                this.updateFollowMode();
+                this.updateStandings();
+            }
+
+            adjustZoom(delta) {
+                if (!this.chaseMode) return;
+                this.currentZoom += delta;
+                // Clamp between 0.1 (full map) and 4.0 (maximum zoom)
+                this.currentZoom = Math.max(0.1, Math.min(4.0, this.currentZoom));
+                this.updateZoomDisplay();
+            }
+
+            updateZoomDisplay() {
+                const zoomDisplay = document.getElementById('zoomDisplay');
+                zoomDisplay.textContent = this.currentZoom.toFixed(1) + 'x';
+            }
+
+            exitFollowMode() {
+                this.chaseMode = null;
+                this.updateFollowMode();
+                this.updateStandings();
+            }
+
+            updateChaseModePosition(positions) {
+                // Update only the position in the chase menu when driver position changes
+                if (!this.chaseMode) return;
+
+                const currentPosition = positions.findIndex(p => p.code === this.chaseMode) + 1;
+                if (currentPosition > 0) {
+                    document.getElementById('followDriverPosition').textContent = currentPosition + '.';
+                }
+            }
+
+            togglePlayPause() {
+                this.isPlaying = !this.isPlaying;
+                this.updatePlayPauseButton();
+            }
+
+            updatePlayPauseButton() {
+                const btn = document.getElementById('playPauseBtn');
+                btn.textContent = this.isPlaying ? '⏸' : '▶';
+            }
+
+            handleSpeedChange(e) {
+                const speedSelector = document.getElementById('speedSelector');
+                const dropdown = speedSelector.querySelector('.speed-dropdown');
+
+                if (e.target.classList.contains('speed-option')) {
+                    // Speed option clicked
+                    this.playSpeed = parseFloat(e.target.dataset.speed);
+                    document.querySelectorAll('.speed-option').forEach(opt => opt.classList.remove('selected'));
+                    e.target.classList.add('selected');
+                    document.getElementById('speedValue').textContent = this.playSpeed + 'x';
+                    // Auto-close dropdown
+                    dropdown.classList.remove('open');
+                } else if (e.currentTarget.id === 'speedSelector') {
+                    // Speed selector button clicked - toggle dropdown
+                    dropdown.classList.toggle('open');
+                }
+            }
+
+            isDriverRetired(driverCode) {
+                // Check status column in telemetry
+                const driver = this.drivers.find(d => d.code === driverCode);
+                if (!driver || !driver.telemetry) return false;
+
+                const tel = driver.telemetry;
+                if (!tel.status) {
+                    // Status column not in API response - need to restart Flask server
+                    return false;
+                }
+
+                // Find closest telemetry entry to current time
+                let idx = this.binarySearchTelemetryIndex(tel.session_time, this.currentTime);
+                if (idx >= 0 && idx < tel.status.length) {
+                    return tel.status[idx] === 'retired';
+                }
+                return false;
+            }
+
+            getDriversAtTime() {
+                const positions = [];
+                for (const driver of this.drivers) {
+                    const tel = driver.telemetry;
+                    if (!tel.session_time || tel.session_time.length === 0) continue;
+
+                    // Get cached index or use binary search
+                    let idx1 = this.binarySearchTelemetryIndex(tel.session_time, this.currentTime);
+
+                    if (idx1 >= 0 && idx1 < tel.X.length) {
+                        // Get interpolated position between two samples
+                        const interpolated = this.interpolateDriverPosition(tel, idx1);
+
+                        positions.push({
+                            code: driver.code,
+                            number: driver.number,
+                            x: interpolated.x,
+                            y: interpolated.y,
+                            progress: interpolated.progress,
+                            timeToDriverAhead: interpolated.timeToDriverAhead,
+                            color: driver.color
+                        });
+                    }
+                }
+
+                positions.sort((a, b) => b.progress - a.progress);
+                return positions;
+            }
+
+            binarySearchTelemetryIndex(sessionTimes, targetTime) {
+                let left = 0;
+                let right = sessionTimes.length - 1;
+
+                // Quick exit for out of bounds
+                if (targetTime < sessionTimes[0]) return 0;
+                if (targetTime >= sessionTimes[right]) return right;
+
+                // Binary search for largest index where sessionTimes[i] <= targetTime
+                while (left < right) {
+                    const mid = Math.floor((left + right + 1) / 2);
+                    if (sessionTimes[mid] <= targetTime) {
+                        left = mid;
+                    } else {
+                        right = mid - 1;
+                    }
+                }
+
+                return left;
+            }
+
+            interpolateDriverPosition(telemetry, idx1) {
+                const time1 = telemetry.session_time[idx1];
+                const idx2 = idx1 + 1;
+
+                // If we're at the last sample or beyond current time, return without interpolation
+                if (idx2 >= telemetry.session_time.length) {
+                    return {
+                        x: telemetry.X[idx1],
+                        y: telemetry.Y[idx1],
+                        progress: telemetry.progress ? telemetry.progress[idx1] : 0,
+                        timeToDriverAhead: telemetry.TimeToDriverAhead ? telemetry.TimeToDriverAhead[idx1] : null
+                    };
+                }
+
+                const time2 = telemetry.session_time[idx2];
+                const timeDelta = time2 - time1;
+
+                // If samples are at same time, return first sample
+                if (timeDelta === 0) {
+                    return {
+                        x: telemetry.X[idx1],
+                        y: telemetry.Y[idx1],
+                        progress: telemetry.progress ? telemetry.progress[idx1] : 0,
+                        timeToDriverAhead: telemetry.TimeToDriverAhead ? telemetry.TimeToDriverAhead[idx1] : null
+                    };
+                }
+
+                // Calculate interpolation factor (0 to 1)
+                const t = (this.currentTime - time1) / timeDelta;
+                const factor = Math.max(0, Math.min(1, t)); // Clamp to [0, 1]
+
+                // Linear interpolation for X, Y
+                const x = telemetry.X[idx1] + (telemetry.X[idx2] - telemetry.X[idx1]) * factor;
+                const y = telemetry.Y[idx1] + (telemetry.Y[idx2] - telemetry.Y[idx1]) * factor;
+
+                // Interpolate progress if available
+                let progress = telemetry.progress ? telemetry.progress[idx1] : 0;
+                if (telemetry.progress && idx2 < telemetry.progress.length) {
+                    progress = telemetry.progress[idx1] + (telemetry.progress[idx2] - telemetry.progress[idx1]) * factor;
+                }
+
+                // Use nearest TimeToDriverAhead value (don't interpolate)
+                let timeToDriverAhead = telemetry.TimeToDriverAhead ? telemetry.TimeToDriverAhead[idx1] : null;
+
+                return { x, y, progress, timeToDriverAhead };
+            }
+
+            updateStandings() {
+                const positions = this.getDriversAtTime();
+
+                // Check if standings actually changed (compare driver order) or if chase mode changed
+                const hasChanged = !this.previousPositions ||
+                    this.previousPositions.length !== positions.length ||
+                    this.previousPositions.some((p, i) => p.code !== positions[i].code) ||
+                    this.previousChaseMode !== this.chaseMode;
+
+                // Only update DOM if standings changed
+                if (hasChanged) {
+                    const standings = document.getElementById('standings');
+                    standings.innerHTML = '';
+
+                    positions.forEach((pos, idx) => {
+                        const driver = this.drivers.find(d => d.code === pos.code);
+                        // Check status column for retirement
+                        const isDNF = this.isDriverRetired(pos.code);
+
+                        const row = document.createElement('div');
+                        row.className = 'driver-row' + (idx === 0 ? ' leader' : '');
+
+                        // Add chase mode styling if this driver is being chased
+                        if (this.chaseMode === pos.code) {
+                            row.style.backgroundColor = 'rgba(255, 255, 255, 0.15)';
+                            row.style.borderLeft = '3px solid #FFD700';
+                            row.style.paddingLeft = '11px';
+                        }
+
+                        // Show time gap to driver ahead (in seconds) or distance if time unavailable
+                        let gap;
+                        if (isDNF) {
+                            gap = 'DNF';
+                        } else if (idx === 0) {
+                            gap = 'LEADER';
+                        } else if (pos.timeToDriverAhead !== null && pos.timeToDriverAhead !== undefined) {
+                            gap = '+' + pos.timeToDriverAhead.toFixed(2) + 's';
+                        } else {
+                            // Fallback to distance if time unavailable
+                            gap = '+' + (positions[0].progress - pos.progress).toFixed(1) + 'm';
+                        }
+
+                        // Keep team color, but make driver name grey if DNF
+                        const displayColor = pos.color;
+                        const nameColor = isDNF ? '#666666' : '#FFFFFF';
+
+                        row.innerHTML = `
+                            <div class="driver-position">${idx + 1}</div>
+                            <div class="driver-color" style="background: ${displayColor}"></div>
+                            <div class="driver-info">
+                                <div class="driver-header">
+                                    <div class="driver-name" style="color: ${nameColor}">${pos.code}</div>
+                                    <div class="driver-number">#${pos.number}</div>
+                                </div>
+                                <div class="driver-interval">${gap}</div>
+                            </div>
+                        `;
+                        row.dataset.driver = pos.code;
+
+                        // Add click handler to toggle chase mode
+                        row.style.cursor = 'pointer';
+                        row.addEventListener('click', () => this.toggleChaseMode(pos.code));
+
+                        standings.appendChild(row);
+                    });
+
+                    this.previousPositions = positions;
+                    this.previousChaseMode = this.chaseMode;
+                }
+
+                // Update chase mode position display if following a driver
+                if (this.chaseMode && positions.length > 0) {
+                    this.updateChaseModePosition(positions);
+                }
+
+                // Update lap info
+                if (positions.length > 0) {
+                    const trackLength = this.sessionData.metadata.track_length;
+                    const lap = Math.max(1, Math.floor(positions[0].progress / trackLength) + 1);
+
+                    // Calculate total laps once and cache it
+                    if (this.cachedTotalLaps === null) {
+                        let totalLaps = this.sessionData.metadata.total_laps;
+
+                        // Fallback: if total_laps seems invalid (too high or zero), calculate from telemetry
+                        if (!totalLaps || totalLaps > 500) {
+                            let maxLap = 1;
+                            for (const driver in this.sessionData.telemetry) {
+                                const tel = this.sessionData.telemetry[driver];
+                                if (tel.LapNumber && tel.LapNumber.length > 0) {
+                                    const driverMaxLap = Math.max(...tel.LapNumber);
+                                    maxLap = Math.max(maxLap, driverMaxLap);
+                                }
+                            }
+                            totalLaps = maxLap;
+                        }
+
+                        this.cachedTotalLaps = totalLaps;
+                    }
+
+                    document.getElementById('lapCounter').textContent = `Lap ${lap} / ${this.cachedTotalLaps}`;
+                }
+
+                // Update race control messages
+                this.updateRaceMessages();
+
+                // Update fastest lap indicator positions
+                this.updateFastestLapIndicatorPositions();
+
+                // Update fastest lap display
+                this.updateFastestLapDisplay();
+            }
+
+            updateRaceMessages() {
+                // Process track status events for pill notifications (SAFETY CAR, VSC, etc.)
+                for (let i = this.lastMessageIndexTrackStatus; i < this.trackStatusEvents.length; i++) {
+                    const event = this.trackStatusEvents[i];
+                    if (event && event.session_time <= this.currentTime) {
+                        this.updatePillNotifications(event.status, event.message);
+                        this.lastMessageIndexTrackStatus = i + 1;
+                    } else {
+                        break;  // Events are chronological, stop if we hit future time
+                    }
+                }
+
+                // Process race control messages through RaceControl manager
+                for (let i = this.raceControl.lastLoggedEventIndex + 1; i < this.raceControlEvents.length; i++) {
+                    const event = this.raceControlEvents[i];
+                    if (event && event.session_time <= this.currentTime) {
+                        // Add message and log it
+                        this.raceControl.addMessage(event.session_time, event.message);
+                        this.raceControl.logMessage(event.session_time, event.message);
+                        this.raceControl.lastLoggedEventIndex = i;
+                    } else {
+                        break;  // Events are chronological, stop if we hit future time
+                    }
+                }
+
+                // Update standalone pill notifications based on active events
+                this.updateActivePillNotifications();
+            }
+
+            updatePillNotifications(status, message) {
+                const text = (message || '').toUpperCase();
+                const statusText = (status || '').toUpperCase();
+
+                // Note: RED FLAG is now handled by TrackStatus (single source of truth)
+                // Only manage SAFETY CAR and VSC notifications here
+
+                // Check for SAFETY CAR starts
+                if (statusText === 'YELLOW' && (text.includes('SAFETY CAR') || text.includes('SC')) && !text.includes('VIRTUAL')) {
+                    this.activeEvents.safetyCar = true;
+                } else if ((statusText === 'YELLOW' || statusText === 'DOUBLE YELLOW') &&
+                           (text.includes('VIRTUAL SAFETY CAR') || text.includes('VSC'))) {
+                    this.activeEvents.vsc = true;
+                }
+
+                // Check for event clears
+                if (statusText === 'GREEN' && (text.includes('GREEN LIGHT') || text.includes('TRACK'))) {
+                    // Green light = clear SAFETY CAR and VSC
+                    // (RED FLAG is handled by TrackStatus)
+                    this.activeEvents.safetyCar = false;
+                    this.activeEvents.vsc = false;
+                } else if (text.includes('PIT EXIT CLOSED') || text.includes('RACE ENDED')) {
+                    // Race ended, clear SAFETY CAR and VSC
+                    // (RED FLAG is handled by TrackStatus)
+                    this.activeEvents.safetyCar = false;
+                    this.activeEvents.vsc = false;
+                }
+            }
+
+            formatLapTime(seconds) {
+                const minutes = Math.floor(seconds / 60);
+                const secs = (seconds % 60).toFixed(1);
+                return `${minutes}m ${secs}s`;
+            }
+
+            updateFastestLapDisplay() {
+                // Process fastest lap events
+                if (!this.sessionData || !this.sessionData.results || !this.sessionData.results.fastest_laps) {
+                    return;
+                }
+
+                const fastestLaps = this.sessionData.results.fastest_laps;
+                if (fastestLaps.length === 0) return;
+
+                // Find the fastest lap that has occurred up to the current time
+                let applicableFastestLap = null;
+                for (const lap of fastestLaps) {
+                    if (lap.session_time <= this.currentTime) {
+                        applicableFastestLap = lap;
+                    } else {
+                        break;  // Since they're chronological, stop at first future lap
+                    }
+                }
+
+                if (!applicableFastestLap) {
+                    // If no laps have occurred yet, don't show any indicator
+                    document.querySelectorAll('.fastest-lap-indicator-item').forEach(indicator => {
+                        indicator.classList.remove('active');
+                    });
+                    return;
+                }
+
+                // Check if this is a new fastest lap (changed since last update)
+                const isNewFastestLap = applicableFastestLap.driver !== this.currentFastestLapDriver;
+
+                // Deactivate other indicators (preserve current driver's state)
+                document.querySelectorAll('.fastest-lap-indicator-item').forEach(indicator => {
+                    if (indicator.dataset.driver !== applicableFastestLap.driver) {
+                        indicator.classList.remove('active', 'showing-time');
+                        const timeEl = indicator.querySelector('.fastest-lap-time');
+                        if (timeEl) timeEl.remove();
+                    }
+                });
+
+                const driverIndicator = document.querySelector(`.fastest-lap-indicator-item[data-driver="${applicableFastestLap.driver}"]`);
+                if (driverIndicator) {
+                    driverIndicator.classList.add('active');
+
+                    // If it's a new fastest lap, show the time (hide icon)
+                    if (isNewFastestLap) {
+                        const formattedTime = this.formatLapTime(applicableFastestLap.time);
+                        console.log(`🏁 NEW FASTEST LAP: ${applicableFastestLap.driver} - Lap ${applicableFastestLap.lap} - ${formattedTime}`);
+
+                        // Remove any existing time element
+                        const existingTime = driverIndicator.querySelector('.fastest-lap-time');
+                        if (existingTime) {
+                            existingTime.remove();
+                        }
+
+                        // Add time element and show-time state
+                        const timeElement = document.createElement('span');
+                        timeElement.className = 'fastest-lap-time';
+                        timeElement.textContent = formattedTime;
+                        driverIndicator.appendChild(timeElement);
+                        driverIndicator.classList.add('showing-time');
+
+                        // After 3s (real time), hide time and show icon
+                        setTimeout(() => {
+                            driverIndicator.classList.remove('showing-time');
+                            timeElement.remove();
+                        }, 3000);
+                    }
+
+                    this.currentFastestLapDriver = applicableFastestLap.driver;
+                }
+            }
+
+            updateActivePillNotifications() {
+                // Check for rain
+                let isRaining = false;
+                for (const event of this.rainEvents) {
+                    if (this.currentTime >= event.start_time && this.currentTime <= event.end_time) {
+                        isRaining = true;
+                        break;
+                    }
+                }
+                this.activeEvents.rain = isRaining;
+
+                // Update pill visibility
+                // RED FLAG is driven by TrackStatus (single source of truth)
+                document.getElementById('redFlagPill').classList.toggle('hidden', !this.trackStatus.redFlag);
+                // SAFETY CAR and VSC are driven by race control messages
+                document.getElementById('safetyCarPill').classList.toggle('hidden', !this.activeEvents.safetyCar);
+                document.getElementById('vscPill').classList.toggle('hidden', !this.activeEvents.vsc);
+                // RAIN is driven by rain events
+                document.getElementById('rainPill').classList.toggle('hidden', !this.activeEvents.rain);
+            }
+
+            formatTime(seconds) {
+                const mins = Math.floor(seconds / 60);
+                const secs = Math.floor(seconds % 60);
+                return `${mins}:${secs.toString().padStart(2, '0')}`;
+            }
+
+            // Smooth a path using Catmull-Rom spline interpolation
+            smoothPath(points, tension = 0.5) {
+                if (points.length < 3) return points;
+
+                const smoothed = [];
+                const segments = 10; // Number of curve segments per point
+
+                for (let i = 0; i < points.length - 1; i++) {
+                    const p0 = points[Math.max(0, i - 1)];
+                    const p1 = points[i];
+                    const p2 = points[i + 1];
+                    const p3 = points[Math.min(points.length - 1, i + 2)];
+
+                    for (let t = 0; t < 1; t += 1 / segments) {
+                        const t2 = t * t;
+                        const t3 = t2 * t;
+
+                        const q = 0.5 * (
+                            (2 * p1.x) +
+                            (-p0.x + p2.x) * t +
+                            (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 +
+                            (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3
+                        );
+
+                        const r = 0.5 * (
+                            (2 * p1.y) +
+                            (-p0.y + p2.y) * t +
+                            (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
+                            (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3
+                        );
+
+                        smoothed.push({x: q, y: r});
+                    }
+                }
+
+                smoothed.push(points[points.length - 1]);
+                return smoothed;
+            }
+
+            render() {
+                const width = this.canvas.width / (window.devicePixelRatio || 1);
+                const height = this.canvas.height / (window.devicePixelRatio || 1);
+
+                this.ctx.fillStyle = '#000';
+                this.ctx.fillRect(0, 0, width, height);
+
+                if (!this.trackData) return;
+
+                // Calculate bounds
+                let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+                for (let i = 0; i < this.trackData.x.length; i++) {
+                    minX = Math.min(minX, this.trackData.x[i]);
+                    maxX = Math.max(maxX, this.trackData.x[i]);
+                    minY = Math.min(minY, this.trackData.y[i]);
+                    maxY = Math.max(maxY, this.trackData.y[i]);
+                }
+
+                if (this.pitLaneData) {
+                    for (let i = 0; i < this.pitLaneData.x.length; i++) {
+                        minX = Math.min(minX, this.pitLaneData.x[i]);
+                        maxX = Math.max(maxX, this.pitLaneData.x[i]);
+                        minY = Math.min(minY, this.pitLaneData.y[i]);
+                        maxY = Math.max(maxY, this.pitLaneData.y[i]);
+                    }
+                }
+
+                const centerX = (minX + maxX) / 2;
+                const centerY = (minY + maxY) / 2;
+                const rotRad = -this.rotation;
+                const cos = Math.cos(rotRad);
+                const sin = Math.sin(rotRad);
+
+                const transform = (px, py) => {
+                    const dx = px - centerX;
+                    const dy = py - centerY;
+                    const rotX = dx * cos - dy * sin + centerX;
+                    const rotY = dx * sin + dy * cos + centerY;
+                    return { x: rotX, y: rotY };
+                };
+
+                // Calculate rotated bounds
+                let rotMinX = Infinity, rotMaxX = -Infinity, rotMinY = Infinity, rotMaxY = -Infinity;
+                for (let i = 0; i < this.trackData.x.length; i++) {
+                    const p = transform(this.trackData.x[i], this.trackData.y[i]);
+                    rotMinX = Math.min(rotMinX, p.x);
+                    rotMaxX = Math.max(rotMaxX, p.x);
+                    rotMinY = Math.min(rotMinY, p.y);
+                    rotMaxY = Math.max(rotMaxY, p.y);
+                }
+
+                const rotWidth = rotMaxX - rotMinX;
+                const rotHeight = rotMaxY - rotMinY;
+
+                // Canvas is now in a centered flexbox container (body-main)
+                // Use the full canvas dimensions with some padding
+                const padding = 40;
+                const availWidth = width - padding * 2;
+                const availHeight = height - padding * 2;
+
+                let chaseCenterX = null;
+                let chaseCenterY = null;
+
+                // In chase mode, find the chased driver's position and use that as the focal point
+                if (this.chaseMode) {
+                    const positions = this.getDriversAtTime();
+                    const chasingDriver = positions.find(p => p.code === this.chaseMode);
+                    if (chasingDriver && !this.isDriverRetired(this.chaseMode)) {
+                        chaseCenterX = chasingDriver.x;
+                        chaseCenterY = chasingDriver.y;
+                    }
+                }
+
+                // Calculate scale and offset
+                if (chaseCenterX !== null && chaseCenterY !== null) {
+                    // Chase mode: zoom in on the driver with some padding
+                    this.scale = this.currentZoom;
+
+                    // Transform the chase point
+                    const chasedPos = transform(chaseCenterX, chaseCenterY);
+                    const centerCanvasX = width / 2;
+                    const centerCanvasY = height / 2;
+                    this.offsetX = centerCanvasX - chasedPos.x * this.scale;
+                    this.offsetY = centerCanvasY + chasedPos.y * this.scale;
+                } else {
+                    // Overview mode: show entire track
+                    const scaleX = availWidth / rotWidth;
+                    const scaleY = availHeight / rotHeight;
+                    this.scale = Math.min(scaleX, scaleY);
+
+                    // Center on the canvas
+                    const centerCanvasX = width / 2;
+                    const centerCanvasY = height / 2;
+                    this.offsetX = centerCanvasX - (rotMinX + rotWidth / 2) * this.scale;
+                    this.offsetY = centerCanvasY + (rotMaxY - rotHeight / 2) * this.scale;
+                }
+
+                const screenTransform = (px, py) => {
+                    const p = transform(px, py);
+                    return {
+                        x: p.x * this.scale + this.offsetX,
+                        y: -p.y * this.scale + this.offsetY
+                    };
+                };
+
+                // Draw pit lane (skip in chase mode to reduce visual clutter)
+                if (this.pitLaneData && !this.chaseMode) {
+                    this.ctx.strokeStyle = this.trackColor;
+                    this.ctx.globalAlpha = 0.3;
+                    this.ctx.lineWidth = 3;
+                    this.ctx.lineCap = 'round';
+                    this.ctx.lineJoin = 'round';
+                    this.ctx.shadowColor = this.trackColor;
+                    this.ctx.shadowBlur = 10;
+                    this.ctx.beginPath();
+                    let first = true;
+                    for (let i = 0; i < this.pitLaneData.x.length; i++) {
+                        const p = screenTransform(this.pitLaneData.x[i], this.pitLaneData.y[i]);
+                        if (first) {
+                            this.ctx.moveTo(p.x, p.y);
+                            first = false;
+                        } else {
+                            this.ctx.lineTo(p.x, p.y);
+                        }
+                    }
+                    this.ctx.stroke();
+                }
+
+                // Reset context state after pit lane
+                this.ctx.globalAlpha = 1.0;
+                this.ctx.shadowColor = 'transparent';
+                this.ctx.shadowBlur = 0;
+
+                // Draw track with glow (handle yellow sectors)
+                this.ctx.lineWidth = 3;
+                this.ctx.lineCap = 'round';
+                this.ctx.lineJoin = 'round';
+
+                if (this.trackStatus.yellowSectors && this.trackStatus.yellowSectors.size > 0 && this.trackData.distance) {
+                    // Track has distance data - draw with sector-based coloring
+                    const lapDist = this.sessionData.metadata.track_length;
+                    let currentPath = [];
+                    let currentColor = this.trackColor;
+                    let lastSector = null;
+
+                    for (let i = 0; i < this.trackData.x.length; i++) {
+                        const dist = this.trackData.distance[i] || 0;
+                        // Estimate marshal sector (1-20) from track distance
+                        const sectorNum = Math.max(1, Math.min(20, Math.floor((dist / lapDist) * 20) + 1));
+                        const newColor = this.trackStatus.yellowSectors.has(sectorNum) ? '#FFD700' : this.trackColor;
+
+                        // If color changed, draw the previous path
+                        if (newColor !== currentColor && currentPath.length > 0) {
+                            this.ctx.strokeStyle = currentColor;
+                            this.ctx.shadowColor = currentColor;
+                            this.ctx.shadowBlur = 15;
+                            this.ctx.beginPath();
+                            for (let j = 0; j < currentPath.length; j++) {
+                                const p = currentPath[j];
+                                if (j === 0) {
+                                    this.ctx.moveTo(p.x, p.y);
+                                } else {
+                                    this.ctx.lineTo(p.x, p.y);
+                                }
+                            }
+                            this.ctx.stroke();
+                            currentPath = [];
+                            currentColor = newColor;
+                        }
+
+                        // Add point to current path
+                        const p = screenTransform(this.trackData.x[i], this.trackData.y[i]);
+                        currentPath.push(p);
+                    }
+
+                    // Draw final path
+                    if (currentPath.length > 0) {
+                        this.ctx.strokeStyle = currentColor;
+                        this.ctx.shadowColor = currentColor;
+                        this.ctx.shadowBlur = 15;
+                        this.ctx.beginPath();
+                        for (let j = 0; j < currentPath.length; j++) {
+                            const p = currentPath[j];
+                            if (j === 0) {
+                                this.ctx.moveTo(p.x, p.y);
+                            } else {
+                                this.ctx.lineTo(p.x, p.y);
+                            }
+                        }
+                        this.ctx.stroke();
+                    }
+                } else {
+                    // No yellow sectors - draw entire track in one color
+                    this.ctx.shadowColor = this.trackColor;
+                    this.ctx.shadowBlur = 15;
+                    this.ctx.strokeStyle = this.trackColor;
+                    this.ctx.beginPath();
+
+                    // Collect track points
+                    let trackPoints = [];
+                    for (let i = 0; i < this.trackData.x.length; i++) {
+                        const p = screenTransform(this.trackData.x[i], this.trackData.y[i]);
+                        trackPoints.push(p);
+                    }
+
+                    // Apply spline smoothing for smoother curves at all zoom levels
+                    trackPoints = this.smoothPath(trackPoints);
+
+                    // Draw the track path
+                    let first = true;
+                    for (let i = 0; i < trackPoints.length; i++) {
+                        const p = trackPoints[i];
+                        if (first) {
+                            this.ctx.moveTo(p.x, p.y);
+                            first = false;
+                        } else {
+                            this.ctx.lineTo(p.x, p.y);
+                        }
+                    }
+                    this.ctx.closePath();
+                    this.ctx.stroke();
+                }
+
+                this.ctx.shadowColor = 'transparent';
+
+                // Draw start/finish line marker
+                if (this.trackData && this.trackData.x.length > 0) {
+                    // Get first and second point to calculate perpendicular direction
+                    const p0 = screenTransform(this.trackData.x[0], this.trackData.y[0]);
+                    const p1 = screenTransform(this.trackData.x[1] !== undefined ? this.trackData.x[1] : this.trackData.x[0],
+                                               this.trackData.y[1] !== undefined ? this.trackData.y[1] : this.trackData.y[0]);
+
+                    // Calculate direction vector
+                    const dx = p1.x - p0.x;
+                    const dy = p1.y - p0.y;
+                    const length = Math.sqrt(dx * dx + dy * dy);
+
+                    if (length > 0) {
+                        // Perpendicular vector (rotated 90 degrees)
+                        const perpX = -dy / length;
+                        const perpY = dx / length;
+                        const lineLength = 30;
+
+                        // Draw start/finish line (solid semi-transparent white)
+                        this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+                        this.ctx.lineWidth = 3;
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(p0.x - perpX * lineLength / 2, p0.y - perpY * lineLength / 2);
+                        this.ctx.lineTo(p0.x + perpX * lineLength / 2, p0.y + perpY * lineLength / 2);
+                        this.ctx.stroke();
+                    }
+                }
+
+                // Draw drivers with glow (skip retired drivers)
+                const positions = this.getDriversAtTime();
+                for (const pos of positions) {
+                    // Skip if driver is retired
+                    if (this.isDriverRetired(pos.code)) continue;
+
+                    const p = screenTransform(pos.x, pos.y);
+
+                    // Blue flag outline (before main glow so it's behind)
+                    if (pos.number in this.activeBlueFlagCars) {
+                        this.ctx.strokeStyle = '#3399FF';
+                        this.ctx.lineWidth = 3;
+                        this.ctx.shadowColor = '#3399FF';
+                        this.ctx.shadowBlur = 8;
+                        this.ctx.beginPath();
+                        this.ctx.arc(p.x, p.y, 12, 0, Math.PI * 2);
+                        this.ctx.stroke();
+                    }
+
+                    // Driver glow effect
+                    this.ctx.shadowColor = pos.color;
+                    this.ctx.shadowBlur = 15;
+                    this.ctx.fillStyle = pos.color;
+                    this.ctx.beginPath();
+                    this.ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
+                    this.ctx.fill();
+
+                    // Inner dark circle for contrast
+                    this.ctx.shadowColor = 'transparent';
+                    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+                    this.ctx.beginPath();
+                    this.ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+                    this.ctx.fill();
+
+                    // Driver number
+                    this.ctx.fillStyle = '#FFF';
+                    this.ctx.font = 'bold 9px Arial';
+                    this.ctx.textAlign = 'center';
+                    this.ctx.textBaseline = 'middle';
+                    this.ctx.fillText(pos.number, p.x, p.y);
+                }
+            }
+
+            formatTime(sec) {
+                const h = Math.floor(sec / 3600);
+                const m = Math.floor((sec % 3600) / 60);
+                const s = Math.floor(sec % 60);
+                return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+            }
+
+            startKnobDrag(e) {
+                this.isDraggingKnob = true;
+                document.getElementById('raceProgressKnob').classList.add('dragging');
+                this.handleKnobDrag(e);
+            }
+
+            endKnobDrag() {
+                if (this.isDraggingKnob) {
+                    this.isDraggingKnob = false;
+                    document.getElementById('raceProgressKnob').classList.remove('dragging');
+                }
+            }
+
+            handleKnobDrag(e) {
+                if (!this.isDraggingKnob || this.maxTime === 0) return;
+
+                const track = document.getElementById('raceProgressTrack');
+                const rect = track.getBoundingClientRect();
+                const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+                const fraction = x / rect.width;
+                this.currentTime = fraction * this.maxTime;
+
+                this.updateProgressBar();
+            }
+
+            seekToClick(e) {
+                if (this.maxTime === 0) return;
+
+                const track = document.getElementById('raceProgressTrack');
+                const rect = track.getBoundingClientRect();
+                const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+                const fraction = x / rect.width;
+                this.currentTime = fraction * this.maxTime;
+
+                this.updateProgressBar();
+            }
+
+            updateProgressBar() {
+                if (this.maxTime === 0) return;
+
+                const fraction = Math.min(1, Math.max(0, this.currentTime / this.maxTime));
+                const fillEl = document.getElementById('raceProgressFill');
+                const knobEl = document.getElementById('raceProgressKnob');
+
+                const percentage = fraction * 100;
+                fillEl.style.width = percentage + '%';
+                knobEl.style.left = percentage + '%';
+            }
+
+            animate() {
+                const now = Date.now();
+                const deltaTime = (now - this.lastFrameTime) / 1000;
+                this.lastFrameTime = now;
+
+                if (this.isPlaying) {
+                    this.previousTime = this.currentTime;
+                    this.currentTime += deltaTime * this.playSpeed;
+                    if (this.currentTime > this.maxTime) {
+                        this.currentTime = this.maxTime;
+                        this.isPlaying = false;
+                        document.getElementById('playPauseBtn').textContent = '▶';
+                        console.log('Race finished!');
+                    }
+                } else {
+                    // Even when paused, track previousTime for selector changes
+                    if (this.previousTime === -Infinity) {
+                        this.previousTime = this.currentTime;
+                    }
+                }
+
+                document.getElementById('raceTimer').textContent = this.formatTime(this.currentTime);
+
+                // Update progress bar (only when not dragging)
+                if (!this.isDraggingKnob) {
+                    this.updateProgressBar();
+                }
+
+                // Clean up expired blue flags
+                this.cleanupExpiredBlueFlags();
+
+                // Update track status (logs only when status changes)
+                this.updateTrackStatus();
+
+                this.updateStandings();
+                this.updateTrackColor();
+                this.render();
+
+                requestAnimationFrame(() => this.animate());
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            new F1RaceViewer();
+        });
+    </script>
+</body>
+</html>

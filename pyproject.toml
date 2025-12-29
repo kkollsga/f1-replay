@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "f1-replay"
+version = "0.1.0"
+description = "Formula 1 Race Replay and Visualization Library"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "F1 Replay Development"}
+]
+keywords = ["formula1", "f1", "racing", "replay", "visualization", "telemetry"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+
+dependencies = [
+    "fastf1>=3.0.0",
+    "pandas>=1.5.0",
+    "numpy>=1.23.0",
+    "polars>=0.19.0",
+    "flask>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "black>=22.0",
+    "flake8>=4.0",
+    "isort>=5.0",
+]
+
+[tool.setuptools]
+packages = ["f1_replay", "f1_replay.data_loader", "f1_replay.manager", "f1_replay.race", "f1_replay.api"]
+
+[tool.black]
+line-length = 100
+target-version = ['py39', 'py310', 'py311']
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"

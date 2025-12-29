@@ -1,0 +1,775 @@
+/* Reset and base styles */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: #000000;
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    color: #FFFFFF;
+}
+
+/* Full screen canvas */
+#trackCanvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    cursor: default;
+}
+
+/* Sidebar */
+#sidebar {
+    position: fixed;
+    left: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 320px;
+    height: 85vh;
+    max-height: 800px;
+    background-color: rgba(0, 0, 0, 0.85);
+    border: 2px solid #FFFFFF;
+    border-radius: 8px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    z-index: 1000;
+    backdrop-filter: blur(10px);
+}
+
+/* Sidebar Header */
+.sidebar-header {
+    display: flex;
+    flex-direction: column;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+    padding-bottom: 12px;
+    margin-bottom: 15px;
+}
+
+.header-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+    flex-wrap: nowrap;
+    justify-content: space-between;
+}
+
+.race-timer {
+    flex: 1;
+    font-size: 16px;
+    font-weight: bold;
+    font-family: 'Courier New', monospace;
+    letter-spacing: 0.5px;
+    color: #FFFFFF;
+}
+
+.lap-counter {
+    font-size: 12px;
+    color: #CCCCCC;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+}
+
+/* Play/Pause Button */
+.play-pause-btn {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    color: #CCCCCC;
+    cursor: pointer;
+    padding: 4px 8px;
+    font-size: 10px;
+    line-height: 1;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 28px;
+    height: 24px;
+}
+
+.play-pause-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.3);
+    color: #FFFFFF;
+}
+
+.play-pause-btn .play-icon {
+    display: none;
+}
+
+.play-pause-btn .pause-icon {
+    display: inline;
+    letter-spacing: -2px;
+}
+
+.play-pause-btn.paused .play-icon {
+    display: inline;
+}
+
+.play-pause-btn.paused .pause-icon {
+    display: none;
+}
+
+/* Speed Selector */
+.speed-selector {
+    position: relative;
+    cursor: pointer;
+    user-select: none;
+}
+
+.speed-value {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: 'Courier New', monospace;
+    color: #CCCCCC;
+    background: rgba(255, 255, 255, 0.1);
+    padding: 3px 8px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    transition: all 0.2s ease;
+}
+
+.speed-selector:hover .speed-value {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.3);
+    color: #FFFFFF;
+}
+
+.speed-dropdown {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    margin-top: 4px;
+    background: rgba(0, 0, 0, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    overflow: hidden;
+    z-index: 1001;
+    min-width: 80px;
+    backdrop-filter: blur(10px);
+}
+
+.speed-dropdown.open {
+    display: block;
+}
+
+.speed-option {
+    padding: 8px 12px;
+    font-size: 13px;
+    font-family: 'Courier New', monospace;
+    color: #CCCCCC;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.speed-option:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #FFFFFF;
+}
+
+.speed-option.selected {
+    color: #FFFFFF;
+    background: rgba(255, 255, 255, 0.15);
+}
+
+/* Race Control Messages */
+.race-messages {
+    position: fixed;
+    top: 70px;
+    right: 20px;
+    width: 400px;
+    max-height: calc(100vh - 90px);
+    display: flex;
+    flex-direction: column-reverse;
+    justify-content: flex-end;
+    gap: 8px;
+    z-index: 998;
+    pointer-events: none;
+    overflow: hidden;
+}
+
+.race-message {
+    background: rgba(0, 0, 0, 0.85);
+    border-radius: 6px;
+    padding: 10px 14px;
+    backdrop-filter: blur(10px);
+    animation: messageSlideIn 0.3s ease-out;
+    pointer-events: auto;
+    transition: opacity 0.4s ease-out, transform 0.4s ease-out;
+}
+
+.race-message.fading {
+    opacity: 0;
+    transform: translateX(20px);
+}
+
+/* Message type colors - applied to text */
+.race-message.redflag .race-message-text {
+    color: #FF4444;
+    font-weight: 600;
+}
+
+.race-message.safetycar .race-message-text {
+    color: #FFD700;
+}
+
+.race-message.flag .race-message-text {
+    color: #FFAA00;
+}
+
+.race-message.drs .race-message-text {
+    color: #00DD77;
+}
+
+.race-message.blueflag .race-message-text {
+    color: #3399FF;
+}
+
+.race-message.fastestlap {
+    border-left: 3px solid #A855F7;
+    background: linear-gradient(90deg, rgba(168, 85, 247, 0.2) 0%, rgba(0, 0, 0, 0.85) 50%);
+}
+
+.race-message.fastestlap .race-message-category {
+    color: #A855F7;
+}
+
+.race-message.fastestlap .race-message-text {
+    color: #D8B4FE;
+    font-weight: 600;
+}
+
+.race-message.chequered .race-message-text {
+    color: #FFFFFF;
+    font-weight: 600;
+    background: linear-gradient(90deg, #FFFFFF 25%, #000000 25%, #000000 50%, #FFFFFF 50%, #FFFFFF 75%, #000000 75%);
+    background-size: 20px 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+}
+
+.race-message.chequered {
+    border: 2px solid #FFFFFF;
+    background: linear-gradient(90deg,
+        rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.1) 12.5%,
+        rgba(0,0,0,0.9) 12.5%, rgba(0,0,0,0.9) 25%,
+        rgba(255,255,255,0.1) 25%, rgba(255,255,255,0.1) 37.5%,
+        rgba(0,0,0,0.9) 37.5%, rgba(0,0,0,0.9) 50%,
+        rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.1) 62.5%,
+        rgba(0,0,0,0.9) 62.5%, rgba(0,0,0,0.9) 75%,
+        rgba(255,255,255,0.1) 75%, rgba(255,255,255,0.1) 87.5%,
+        rgba(0,0,0,0.9) 87.5%, rgba(0,0,0,0.9) 100%
+    );
+    background-size: 40px 100%;
+}
+
+.race-message.other .race-message-text {
+    color: #FFFFFF;
+}
+
+.race-message-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.race-message-time {
+    font-size: 11px;
+    font-weight: 600;
+    font-family: 'Courier New', monospace;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.race-message-category {
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.race-message-text {
+    font-size: 13px;
+    color: #FFFFFF;
+    line-height: 1.4;
+}
+
+@keyframes messageSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Clickable timer and lap counter */
+.race-timer,
+.lap-counter {
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    padding: 4px 8px;
+    margin: -4px -8px;
+    border-radius: 4px;
+}
+
+.race-timer:hover,
+.lap-counter:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Input fields for time/lap jumping */
+.time-input,
+.lap-input {
+    background: rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    border-radius: 4px;
+    color: #FFFFFF;
+    font-family: 'Courier New', monospace;
+    outline: none;
+    padding: 4px 8px;
+}
+
+.time-input {
+    font-size: 16px;
+    font-weight: bold;
+    width: 100px;
+    letter-spacing: 0.5px;
+}
+
+.lap-input {
+    font-size: 14px;
+    width: 50px;
+    text-align: center;
+}
+
+.time-input:focus,
+.lap-input:focus {
+    border-color: #FFFFFF;
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.time-input::placeholder,
+.lap-input::placeholder {
+    color: rgba(255, 255, 255, 0.4);
+}
+
+/* Standings Container */
+.standings-container {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    margin-top: 10px;
+}
+
+/* Custom scrollbar */
+.standings-container::-webkit-scrollbar {
+    width: 6px;
+}
+
+.standings-container::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+}
+
+.standings-container::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 3px;
+}
+
+.standings-container::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.5);
+}
+
+/* Standings Title */
+.standings-title {
+    font-size: 12px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #999999;
+    margin-bottom: 10px;
+}
+
+/* Driver Row */
+.driver-row {
+    display: flex;
+    align-items: center;
+    padding: 6px 0;
+    font-size: 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    transition: background-color 0.2s;
+    position: relative;
+}
+
+.driver-row:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+.driver-position {
+    width: 25px;
+    font-weight: bold;
+    color: #FFFFFF;
+    text-align: right;
+    margin-right: 10px;
+}
+
+.driver-color {
+    width: 4px;
+    height: 18px;
+    margin-right: 8px;
+    border-radius: 2px;
+}
+
+.driver-name {
+    flex: 1;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.driver-name.fastest-lap {
+    color: #A855F7;
+    text-shadow: 0 0 8px rgba(168, 85, 247, 0.6);
+}
+
+/* Active fastest lap highlight (5 second effect) */
+.driver-row.fastest-lap-highlight {
+    font-weight: 700;
+    background: linear-gradient(90deg, rgba(168, 85, 247, 0.15) 0%, transparent 100%);
+}
+
+.driver-row.fastest-lap-highlight .driver-name {
+    font-weight: 700;
+}
+
+.driver-interval.fastest-lap {
+    color: #A855F7;
+    font-weight: 600;
+    text-shadow: 0 0 8px rgba(168, 85, 247, 0.6);
+}
+
+.driver-interval {
+    font-size: 12px;
+    color: #999999;
+    font-family: 'Courier New', monospace;
+    margin-left: 8px;
+}
+
+/* Leader indicator */
+.driver-row.leader .driver-interval {
+    color: #00FF00;
+}
+
+/* DNF indicator */
+.driver-row.dnf {
+    opacity: 0.4;
+}
+
+.driver-row.dnf .driver-interval {
+    color: #FF4444;
+    font-weight: bold;
+}
+
+/* Position change indicator */
+.position-change {
+    position: absolute;
+    right: 75px;
+    font-size: 10px;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.position-change.up {
+    color: #00FF00;
+}
+
+.position-change.down {
+    color: #FF4444;
+}
+
+.position-change-count {
+    font-size: 9px;
+    opacity: 0.8;
+}
+
+/* Rotation Indicator */
+.rotation-indicator {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 6px;
+    padding: 10px 20px;
+    font-size: 18px;
+    font-weight: 600;
+    font-family: 'Courier New', monospace;
+    color: #FFFFFF;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    z-index: 1001;
+    pointer-events: none;
+}
+
+.rotation-indicator.visible {
+    opacity: 1;
+}
+
+/* Track Header */
+.track-header {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    z-index: 999;
+    padding-left: 180px; /* Offset for sidebar */
+}
+
+.track-selector {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(0, 0, 0, 0.7);
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(10px);
+}
+
+.year-selector,
+.track-name-selector {
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    color: #FFFFFF;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: background-color 0.2s ease;
+}
+
+.year-selector {
+    font-size: 14px;
+    font-weight: 600;
+    color: #CCCCCC;
+}
+
+.track-name-selector {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+.year-selector:hover,
+.track-name-selector:hover {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.year-selector.active,
+.track-name-selector.active {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+/* Track Actions (Cancel/Load buttons) */
+.track-actions {
+    display: none;
+    gap: 8px;
+}
+
+.track-actions.visible {
+    display: flex;
+}
+
+.track-btn {
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 8px 16px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.cancel-btn {
+    background: rgba(255, 255, 255, 0.1);
+    color: #CCCCCC;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.cancel-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+    color: #FFFFFF;
+}
+
+.load-btn {
+    background: #E10600;
+    color: #FFFFFF;
+}
+
+.load-btn:hover {
+    background: #FF1801;
+}
+
+/* Weather Indicator (rain pill) */
+.weather-indicator {
+    position: fixed;
+    bottom: 30px;
+    /* Center in track area: sidebar is 360px, so center = 360px + (100vw - 360px) / 2 */
+    left: calc(360px + (100vw - 360px) / 2);
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    background: linear-gradient(135deg, #1a5fb4, #3584e4);
+    padding: 8px 18px;
+    border-radius: 20px;
+    border: 1px solid rgba(53, 132, 228, 0.5);
+    backdrop-filter: blur(10px);
+    z-index: 998;
+    box-shadow: 0 2px 8px rgba(26, 95, 180, 0.4);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.weather-indicator.hidden {
+    opacity: 0;
+    transform: translateX(-50%) translateY(10px);
+    pointer-events: none;
+}
+
+.weather-indicator .rain-icon {
+    font-size: 14px;
+}
+
+.weather-indicator .rain-text {
+    font-size: 12px;
+    font-weight: 600;
+    color: #FFFFFF;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Selector Dropdowns */
+.selector-dropdown {
+    display: none;
+    position: fixed;
+    top: 60px;
+    background: rgba(0, 0, 0, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    max-height: 400px;
+    overflow-y: auto;
+    z-index: 1002;
+    backdrop-filter: blur(10px);
+    min-width: 120px;
+}
+
+.selector-dropdown.open {
+    display: block;
+}
+
+.selector-dropdown .dropdown-item {
+    padding: 10px 16px;
+    color: #CCCCCC;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+    font-size: 14px;
+}
+
+.selector-dropdown .dropdown-item:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #FFFFFF;
+}
+
+.selector-dropdown .dropdown-item.selected {
+    background: rgba(255, 255, 255, 0.15);
+    color: #FFFFFF;
+    font-weight: 600;
+}
+
+/* Custom scrollbar for dropdowns */
+.selector-dropdown::-webkit-scrollbar {
+    width: 6px;
+}
+
+.selector-dropdown::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+}
+
+.selector-dropdown::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 3px;
+}
+
+.selector-dropdown::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.5);
+}
+
+/* Loading Toast (non-blocking) */
+.loading-toast {
+    position: fixed;
+    bottom: 24px;
+    left: 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: rgba(20, 20, 20, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-left: 3px solid #E10600;
+    border-radius: 8px;
+    padding: 12px 18px;
+    z-index: 2000;
+    opacity: 0;
+    transform: translateY(20px);
+    pointer-events: none;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+.loading-toast.visible {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+}
+
+.loading-toast-spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-top-color: #E10600;
+    border-radius: 50%;
+    animation: loadingSpin 1s linear infinite;
+    flex-shrink: 0;
+}
+
+@keyframes loadingSpin {
+    to { transform: rotate(360deg); }
+}
+
+.loading-toast-message {
+    font-size: 13px;
+    color: #CCCCCC;
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    white-space: nowrap;
+}
