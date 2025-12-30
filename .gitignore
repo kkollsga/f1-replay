@@ -7,6 +7,11 @@ ENV/
 # Cache directories
 race_data/
 fastf1_docs/
+.ipynb_checkpoints/
+
+# Project-specific
+CLAUDE.md
+*.ipynb
 
 .fastf1_cache/
 __pycache__/
