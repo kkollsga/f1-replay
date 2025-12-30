@@ -1,5 +1,5 @@
 """
-F1_Replay Data Models
+f1-replay Data Models
 
 Immutable dataclasses for representing F1 data at different levels:
 - TIER 1: F1Seasons (season catalog)

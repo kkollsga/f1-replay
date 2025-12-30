@@ -6,6 +6,8 @@ ENV/
 
 # Cache directories
 race_data/
+fastf1_docs/
+
 .fastf1_cache/
 __pycache__/
 *.pyc

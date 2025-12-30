@@ -1,5 +1,5 @@
 """
-Setup configuration for F1_Replay library.
+Setup configuration for f1-replay library.
 Uses pyproject.toml for configuration.
 """
 

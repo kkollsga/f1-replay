@@ -1,4 +1,4 @@
-# F1_Replay - Formula 1 Race Replay Library
+# f1-replay - Formula 1 Race Replay Library
 
 A Python library for accessing, processing, and analyzing Formula 1 race data with hierarchical 3-tier caching for optimal performance.
 

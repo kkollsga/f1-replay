@@ -1,5 +1,5 @@
 """
-F1_Replay - Formula 1 Data Analysis and Visualization Library
+f1-replay - Formula 1 Data Analysis and Visualization Library
 
 A Python library for accessing, processing, and analyzing Formula 1 race data.
 Provides hierarchical data loading (seasons → weekends → sessions) with efficient
