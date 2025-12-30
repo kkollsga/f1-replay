@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "f1-replay"
-version = "0.1.1"
+version = "0.1.2"
 description = "Formula 1 Race Replay and Visualization Library"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -40,6 +40,9 @@ dev = [
     "flake8>=4.0",
     "isort>=5.0",
 ]
+
+[project.scripts]
+f1-replay = "f1_replay.api.cli:main"
 
 [tool.setuptools]
 packages = ["f1_replay", "f1_replay.data_loader", "f1_replay.manager", "f1_replay.race", "f1_replay.api"]

@@ -10,6 +10,7 @@ import webbrowser
 from f1_replay.data_loader import DataLoader, F1Seasons, F1Year
 from f1_replay.race_weekend import RaceWeekend
 from f1_replay.session import Session
+from f1_replay.config import get_cache_dir
 
 
 class Manager:
@@ -19,7 +20,7 @@ class Manager:
     Manages seasons catalog, loads race/session data, and launches Flask viewer app.
 
     Usage:
-        manager = Manager(cache_dir='race_data')
+        manager = Manager()  # Uses global config
 
         # Access season catalog
         seasons = manager.get_seasons()
@@ -34,15 +35,15 @@ class Manager:
         manager.race(2024, "abu dhabi")  # By event name
     """
 
-    def __init__(self, cache_dir: str = "race_data"):
+    def __init__(self, cache_dir: Optional[str] = None):
         """
         Initialize Manager.
 
         Args:
-            cache_dir: Directory for data caching (default: "race_data")
+            cache_dir: Directory for data caching (default: from global config)
         """
-        self.cache_dir = cache_dir
-        self.data_loader = DataLoader(cache_dir)
+        self.cache_dir = cache_dir or get_cache_dir()
+        self.data_loader = DataLoader(self.cache_dir)
         self._seasons: Optional[F1Seasons] = None
 
     # =========================================================================

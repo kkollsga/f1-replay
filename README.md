@@ -69,10 +69,47 @@ manager.race(2024, 8, force_update=True)
 ### CLI Usage
 
 ```bash
-# Launch viewer from command line
+# Launch race viewer
 f1-replay race 2024 monaco
 f1-replay race 2024 8 --port 8080
+
+# List available races
+f1-replay seasons
+f1-replay seasons 2024
+
+# Run standalone API server
+f1-replay server --port 5000
 ```
+
+## Configuration
+
+Set a global cache directory so f1-replay remembers where your data is stored:
+
+```bash
+# Set global cache directory (persists across sessions)
+f1-replay config --set-cache-dir /path/to/race_data
+
+# View current configuration
+f1-replay config
+```
+
+Or set it in Python:
+
+```python
+from f1_replay import set_cache_dir
+
+set_cache_dir("/path/to/race_data")  # Persists globally
+```
+
+Or use an environment variable (takes priority over config file):
+
+```bash
+export F1_REPLAY_CACHE_DIR=/path/to/race_data
+```
+
+**Priority:** Environment variable > Config file > Default (`./race_data`)
+
+Config file: `~/.f1replay/config.json`
 
 ## Features
 

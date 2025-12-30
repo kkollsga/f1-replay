@@ -13,10 +13,14 @@ from f1_replay.data_loader import DataLoader
 from f1_replay.manager import Manager
 from f1_replay.race_weekend import RaceWeekend
 from f1_replay.session import Session
+from f1_replay.config import get_cache_dir, set_cache_dir, get_config
 
 __all__ = [
     'DataLoader',
     'Manager',
     'RaceWeekend',
     'Session',
+    'get_cache_dir',
+    'set_cache_dir',
+    'get_config',
 ]
