@@ -2,6 +2,8 @@
 
 A Python wrapper around the [FastF1](https://github.com/theOehrly/Fast-F1) library for interactive Formula 1 race replays. View historic races in a 2D map visualization with real-time car positions using telemetry data.
 
+> Inspired by [f1-race-replay](https://github.com/IAmTomShaw/f1-race-replay) by Tom Shaw. This project was built from scratch with a different architecture and feature set.
+
 ## Installation
 
 ```bash
