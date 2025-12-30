@@ -971,6 +971,178 @@
             border-radius: 0 0 4px 4px;
             border-top: none;
         }
+
+        /* Mobile Toggle Buttons */
+        .mobile-toggles {
+            display: none;
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 2000;
+            gap: 10px;
+        }
+
+        .mobile-toggle-btn {
+            background: rgba(30, 30, 30, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            padding: 10px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .mobile-toggle-btn:hover {
+            background: rgba(50, 50, 50, 0.95);
+            border-color: rgba(255, 255, 255, 0.4);
+        }
+
+        .mobile-toggle-btn.active {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255, 255, 255, 0.5);
+        }
+
+        /* Responsive Breakpoints */
+
+        /* Large screens (< 1400px): Narrower sidebars */
+        @media (max-width: 1400px) {
+            #sidebar {
+                width: 300px;
+                padding: 15px;
+            }
+            .message-center {
+                width: 420px;
+                padding: 15px;
+            }
+        }
+
+        /* Medium screens (< 1100px): Single sidebar mode */
+        @media (max-width: 1100px) {
+            .mobile-toggles {
+                display: flex;
+            }
+
+            #sidebar {
+                position: fixed;
+                left: 0;
+                top: 0;
+                width: 320px;
+                transform: translateX(-100%);
+                transition: transform 0.3s ease;
+                background: rgba(0, 0, 0, 0.98);
+                border-right: 1px solid rgba(255, 255, 255, 0.1);
+            }
+
+            #sidebar.visible {
+                transform: translateX(0);
+            }
+
+            .message-center {
+                position: fixed;
+                right: 0;
+                top: 0;
+                width: 360px;
+                transform: translateX(100%);
+                transition: transform 0.3s ease;
+                background: rgba(0, 0, 0, 0.98);
+                border-left: 1px solid rgba(255, 255, 255, 0.1);
+            }
+
+            .message-center.visible {
+                transform: translateX(0);
+            }
+
+            .body-container {
+                width: 100%;
+            }
+
+            .body-footer {
+                padding-bottom: 70px;
+            }
+        }
+
+        /* Small screens (< 768px): Optimized for mobile */
+        @media (max-width: 768px) {
+            #sidebar {
+                width: 280px;
+            }
+
+            .message-center {
+                width: 300px;
+            }
+
+            .body-header {
+                min-height: 60px;
+                padding: 10px;
+            }
+
+            .body-main {
+                padding: 10px;
+            }
+
+            .body-footer {
+                min-height: 60px;
+                padding: 10px;
+                padding-bottom: 80px;
+            }
+
+            .selector-controls {
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+
+            .selector-controls select {
+                min-width: 100px;
+                font-size: 12px;
+            }
+
+            .event-pill {
+                font-size: 10px;
+                padding: 4px 10px;
+            }
+        }
+
+        /* Very small screens (< 480px) */
+        @media (max-width: 480px) {
+            #sidebar {
+                width: 100%;
+            }
+
+            .message-center {
+                width: 100%;
+            }
+
+            .mobile-toggle-btn {
+                padding: 8px 12px;
+                font-size: 11px;
+            }
+        }
+
+        /* Landscape mobile orientation */
+        @media (max-height: 500px) and (orientation: landscape) {
+            .body-header {
+                min-height: 40px;
+                padding: 5px 10px;
+            }
+
+            .body-footer {
+                min-height: 50px;
+                padding: 5px 10px;
+                padding-bottom: 60px;
+            }
+
+            .mobile-toggles {
+                bottom: 10px;
+            }
+
+            .mobile-toggle-btn {
+                padding: 6px 10px;
+                font-size: 10px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -1096,10 +1268,16 @@
     </div>
 
     <!-- Right Message Center (Race Control Messages) -->
-    <div class="message-center">
+    <div class="message-center" id="messageCenter">
         <div class="messages-container">
             <div id="raceMessages" class="race-messages"></div>
         </div>
+    </div>
+
+    <!-- Mobile Toggle Buttons (visible on smaller screens) -->
+    <div class="mobile-toggles" id="mobileToggles">
+        <button class="mobile-toggle-btn" id="toggleStandings">Standings</button>
+        <button class="mobile-toggle-btn" id="toggleMessages">Messages</button>
     </div>
 
     <script>
@@ -1413,6 +1591,15 @@
                 root.style.setProperty('--driver-number-margin', STANDINGS_SETTINGS.driverNumberMargin);
             }
 
+            // Debounce utility for resize handler
+            debounce(func, wait) {
+                let timeout;
+                return (...args) => {
+                    clearTimeout(timeout);
+                    timeout = setTimeout(() => func.apply(this, args), wait);
+                };
+            }
+
             setupEventListeners() {
                 document.getElementById('playPauseBtn').addEventListener('click', () => this.togglePlayPause());
                 document.getElementById('speedSelector').addEventListener('click', (e) => this.handleSpeedChange(e));
@@ -1425,10 +1612,65 @@
                     }
                 });
 
-                window.addEventListener('resize', () => {
+                // Debounced resize handler for smooth scaling
+                const handleResize = this.debounce(() => {
                     this.setupCanvas();
                     this.render();
+                }, 100);
+                window.addEventListener('resize', handleResize);
+
+                // Also handle orientation change for mobile devices
+                window.addEventListener('orientationchange', () => {
+                    setTimeout(() => {
+                        this.setupCanvas();
+                        this.render();
+                    }, 200);
                 });
+
+                // Mobile panel toggle buttons
+                const sidebar = document.getElementById('sidebar');
+                const messageCenter = document.getElementById('messageCenter');
+                const toggleStandings = document.getElementById('toggleStandings');
+                const toggleMessages = document.getElementById('toggleMessages');
+
+                if (toggleStandings && toggleMessages) {
+                    toggleStandings.addEventListener('click', () => {
+                        sidebar.classList.toggle('visible');
+                        messageCenter.classList.remove('visible');
+                        toggleStandings.classList.toggle('active');
+                        toggleMessages.classList.remove('active');
+                        // Re-render after panel animation
+                        setTimeout(() => {
+                            this.setupCanvas();
+                            this.render();
+                        }, 350);
+                    });
+
+                    toggleMessages.addEventListener('click', () => {
+                        messageCenter.classList.toggle('visible');
+                        sidebar.classList.remove('visible');
+                        toggleMessages.classList.toggle('active');
+                        toggleStandings.classList.remove('active');
+                        // Re-render after panel animation
+                        setTimeout(() => {
+                            this.setupCanvas();
+                            this.render();
+                        }, 350);
+                    });
+
+                    // Close panels when clicking on canvas (mobile)
+                    this.canvas.addEventListener('click', (e) => {
+                        if (window.innerWidth <= 1100) {
+                            if (sidebar.classList.contains('visible') || messageCenter.classList.contains('visible')) {
+                                sidebar.classList.remove('visible');
+                                messageCenter.classList.remove('visible');
+                                toggleStandings.classList.remove('active');
+                                toggleMessages.classList.remove('active');
+                                e.stopPropagation();
+                            }
+                        }
+                    });
+                }
 
                 // Progress bar events
                 const knob = document.getElementById('raceProgressKnob');
