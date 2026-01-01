@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>F1 Race Viewer</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
         /* Reset and base styles */
         * {
@@ -425,6 +426,41 @@
         .driver-row.leader .driver-interval {
             color: #FFD700;
         }
+
+        /* Tire info display */
+        .driver-tire {
+            font-size: var(--time-size, 11px);
+            font-family: 'Courier New', monospace;
+            flex-shrink: 0;
+            min-width: 50px;
+            text-align: right;
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 4px;
+        }
+
+        .driver-tire .tire-icon {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            border: 3px solid;
+            box-sizing: border-box;
+        }
+
+        .driver-tire .tire-laps {
+            color: #AAAAAA;
+            min-width: 20px;
+        }
+
+        /* Pirelli tire compound colors */
+        .tire-soft { border-color: #FF3333; }
+        .tire-medium { border-color: #FFD700; }
+        .tire-hard { border-color: #FFFFFF; }
+        .tire-intermediate { border-color: #43B02A; }
+        .tire-wet { border-color: #0066FF; }
+        .tire-unknown { border-color: #888888; }
 
         /* Messages Container */
         .messages-container {
@@ -1313,6 +1349,8 @@
         class TrackStatus {
             constructor() {
                 this.redFlag = false;
+                this.safetyCar = false;
+                this.vsc = false;
                 this.blueFlag = false;
                 this.yellowSectors = new Set();
                 this.lastLoggedEventIndex = -1;
@@ -1321,6 +1359,18 @@
             setRedFlag(value) {
                 if (this.redFlag === value) return false;
                 this.redFlag = value;
+                return true;
+            }
+
+            setSafetyCar(value) {
+                if (this.safetyCar === value) return false;
+                this.safetyCar = value;
+                return true;
+            }
+
+            setVSC(value) {
+                if (this.vsc === value) return false;
+                this.vsc = value;
                 return true;
             }
 
@@ -1343,8 +1393,10 @@
             }
 
             clearAll() {
-                const changed = this.redFlag || this.blueFlag || this.yellowSectors.size > 0;
+                const changed = this.redFlag || this.safetyCar || this.vsc || this.blueFlag || this.yellowSectors.size > 0;
                 this.redFlag = false;
+                this.safetyCar = false;
+                this.vsc = false;
                 this.blueFlag = false;
                 this.yellowSectors.clear();
                 return changed;
@@ -1352,6 +1404,8 @@
 
             getGlobalStatus() {
                 if (this.redFlag) return 'RED';
+                if (this.safetyCar) return 'SC';
+                if (this.vsc) return 'VSC';
                 if (this.blueFlag) return 'BLUE';
                 if (this.yellowSectors.size > 0) return 'YELLOW';
                 return 'CLEAR';
@@ -1523,6 +1577,8 @@
 
                 // Time tracking for messages
                 this.previousTime = -Infinity;
+                this.lastProcessedStatusTime = -1;  // Track time for scrub detection
+                this.scrubDebounceTimer = null;     // Debounce timer for scrub updates
 
                 // Selector state
                 this.seasonsData = null;
@@ -1548,6 +1604,13 @@
                 // Chase mode state (null = overview mode, driver code = chasing that driver)
                 this.chaseMode = null;
                 this.currentZoom = 0.1;  // Zoom level in follow mode (0.1 = full map, no zoom)
+
+                // Standings display mode: 'time' or 'tire'
+                // Cycles between modes: 75% time, 25% tire
+                // Minimum display: 15s real time or 1/2 lap (whichever is longer)
+                this.standingsMode = 'time';
+                this.standingsModeLastSwitch = 0;  // Real timestamp of last mode switch
+                this.standingsModeLastLap = 0;     // Leader lap at last mode switch
 
                 // Initialize
                 this.setupEventListeners();
@@ -1838,6 +1901,12 @@
                     this.weekendData = await weekendResp.json();
                     this.sessionData = await sessionResp.json();
 
+                    // Check if this is a future scheduled race
+                    if (this.sessionData.scheduled) {
+                        this.showScheduledMessage(this.sessionData);
+                        return;
+                    }
+
                     this.initializeFromData();
                     this.render();
 
@@ -1849,6 +1918,86 @@
                     console.error('Failed to load data:', e);
                     alert('Failed to load race data: ' + e.message);
                 }
+            }
+
+            showScheduledMessage(scheduledData) {
+                // Hide the canvas and show a scheduled message
+                const canvas = document.getElementById('raceCanvas');
+                canvas.style.display = 'none';
+
+                // Hide controls
+                const controls = document.querySelector('.controls');
+                if (controls) controls.style.display = 'none';
+
+                // Create scheduled message overlay
+                const overlay = document.createElement('div');
+                overlay.className = 'scheduled-overlay';
+                overlay.innerHTML = `
+                    <div class="scheduled-content">
+                        <h1>🏁 ${scheduledData.event_name}</h1>
+                        <p class="scheduled-type">${scheduledData.session_type}</p>
+                        <p class="scheduled-date">${scheduledData.scheduled_date_formatted}</p>
+                        <p class="scheduled-message">${scheduledData.message}</p>
+                        <button onclick="window.history.back()" class="back-btn">← Back to race selection</button>
+                    </div>
+                `;
+                document.querySelector('.container').appendChild(overlay);
+
+                // Add styles for the overlay
+                const style = document.createElement('style');
+                style.textContent = `
+                    .scheduled-overlay {
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        right: 0;
+                        bottom: 0;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                        z-index: 1000;
+                    }
+                    .scheduled-content {
+                        text-align: center;
+                        color: white;
+                        padding: 40px;
+                    }
+                    .scheduled-content h1 {
+                        font-size: 2.5em;
+                        margin-bottom: 20px;
+                    }
+                    .scheduled-type {
+                        font-size: 1.2em;
+                        color: #888;
+                        text-transform: uppercase;
+                        letter-spacing: 2px;
+                    }
+                    .scheduled-date {
+                        font-size: 2em;
+                        color: #e10600;
+                        margin: 20px 0;
+                        font-weight: bold;
+                    }
+                    .scheduled-message {
+                        font-size: 1.1em;
+                        color: #aaa;
+                        margin-bottom: 30px;
+                    }
+                    .back-btn {
+                        background: #e10600;
+                        color: white;
+                        border: none;
+                        padding: 12px 24px;
+                        font-size: 1em;
+                        border-radius: 5px;
+                        cursor: pointer;
+                    }
+                    .back-btn:hover {
+                        background: #ff1a1a;
+                    }
+                `;
+                document.head.appendChild(style);
             }
 
             initializeFromData() {
@@ -1981,85 +2130,134 @@
                     return;
                 }
 
-                // Process events up to current time
-                for (let eventIndex = 0; eventIndex < this.trackStatusEvents.length; eventIndex++) {
-                    const event = this.trackStatusEvents[eventIndex];
-                    if (event && event.session_time <= this.currentTime) {
-                        const status = (event.status || '').toUpperCase();
-                        const message = event.message || '';
-
-                        // Process event only if it's new
-                        if (eventIndex <= this.trackStatus.lastLoggedEventIndex) {
-                            continue;
-                        }
-
-                        let changed = false;
-
-                        if (status === 'RED' || status === 'RED FLAG') {
-                            // Red flag overrides everything
-                            changed |= this.trackStatus.setRedFlag(true);
-                            changed |= this.trackStatus.setBlueFlag(false);
-                            if (this.trackStatus.yellowSectors.size > 0) {
-                                this.trackStatus.yellowSectors.clear();
-                                changed = true;
-                            }
-                        } else if (status === 'BLUE') {
-                            // Blue flag on specific car - extract car number from message
-                            // Message format: "WAVED BLUE FLAG FOR CAR 77 (BOT)"
-                            const carMatch = message.match(/CAR\s+(\d+)/i);
-                            if (carMatch) {
-                                const carNumber = parseInt(carMatch[1]);
-                                this.activeBlueFlagCars[carNumber] = event.session_time;
-                                changed = true;
-                            }
-                        } else if (status === 'YELLOW' || status === 'DOUBLE YELLOW') {
-                            // Yellow flag (unless red flag active)
-                            if (!this.trackStatus.redFlag) {
-                                const sectorMatch = message.match(/SECTOR\s+(\d+)/i);
-                                if (sectorMatch) {
-                                    changed |= this.trackStatus.addYellowSector(parseInt(sectorMatch[1]));
-                                }
-                            }
-                        } else if (status === 'CLEAR' || status === 'GREEN') {
-                            // Handle sector-specific clears vs global clears
-                            const sectorMatch = message.match(/SECTOR\s+(\d+)/i);
-                            const isTrackClear = message.includes('TRACK CLEAR');
-
-                            if (isTrackClear) {
-                                // TRACK CLEAR: clears all flags and sectors
-                                changed |= this.trackStatus.setRedFlag(false);
-                                if (Object.keys(this.activeBlueFlagCars).length > 0) {
-                                    this.activeBlueFlagCars = {};
-                                    changed = true;
-                                }
-                                if (this.trackStatus.yellowSectors.size > 0) {
-                                    this.trackStatus.yellowSectors.clear();
-                                    changed = true;
-                                }
-                            } else if (sectorMatch && !this.trackStatus.redFlag) {
-                                // Sector-specific clear: only works if no red flag
-                                const sector = parseInt(sectorMatch[1]);
-                                changed |= this.trackStatus.removeYellowSector(sector);
-                            } else if (!sectorMatch && !this.trackStatus.redFlag) {
-                                // Global clear: only if no red flag
-                                if (this.trackStatus.yellowSectors.size > 0) {
-                                    this.trackStatus.yellowSectors.clear();
-                                    changed = true;
-                                }
-                            }
-                        }
-
-                        // Log and display only new events that caused changes
-                        if (changed) {
-                            this.trackStatus.logStatusChange(event.session_time, event.message);
-                            // Display to user via RaceControl (no extra logging)
-                            this.raceControl.displayStatusMessage(event.session_time, event.message);
-                            this.trackStatus.lastLoggedEventIndex = eventIndex;
-                        }
-                    }
+                // Detect scrubbing (time went backwards) - rebuild state silently
+                const isScrubbing = this.currentTime < this.lastProcessedStatusTime;
+                if (isScrubbing) {
+                    this.rebuildTrackStatusSilently();
+                    return;
                 }
 
-                // Update visual representation based on state
+                // Forward playback: process events incrementally
+                this.processTrackStatusForward(false);
+                this.lastProcessedStatusTime = this.currentTime;
+            }
+
+            // Rebuild track status from scratch without logging (for scrubbing)
+            rebuildTrackStatusSilently() {
+                // Reset all state
+                this.trackStatus.redFlag = false;
+                this.trackStatus.blueFlag = false;
+                this.trackStatus.yellowSectors.clear();
+                this.trackStatus.lastLoggedEventIndex = -1;
+                this.activeBlueFlagCars = {};
+
+                // Process all events up to current time silently
+                this.processTrackStatusForward(true);
+                this.lastProcessedStatusTime = this.currentTime;
+
+                // Update visuals
+                this.updateTrackColor();
+                this.updatePillsSilently();
+            }
+
+            // Update pill indicators without logging
+            updatePillsSilently() {
+                // Update active event pills based on TrackStatus state
+                const globalStatus = this.trackStatus.getGlobalStatus();
+                this.updateStatusPills(globalStatus);
+            }
+
+            // Process track status events forward from last processed index
+            // Uses structured data fields: status, flag_type, scope, sector, driver_num
+            processTrackStatusForward(silent) {
+                const startIndex = silent ? 0 : (this.trackStatus.lastLoggedEventIndex + 1);
+
+                for (let eventIndex = startIndex; eventIndex < this.trackStatusEvents.length; eventIndex++) {
+                    const event = this.trackStatusEvents[eventIndex];
+                    if (!event || event.session_time > this.currentTime) break;
+
+                    const status = (event.status || '').toUpperCase();
+                    const flagType = (event.flag_type || '').toUpperCase();
+                    const scope = event.scope || 'Track';
+                    const sector = event.sector || 0;
+                    const driverNum = event.driver_num || '';
+                    const message = event.message || '';
+
+                    let changed = false;
+
+                    // Handle global track states (from session.track_status)
+                    if (status === 'RED') {
+                        changed |= this.trackStatus.setRedFlag(true);
+                        changed |= this.trackStatus.setSafetyCar(false);
+                        changed |= this.trackStatus.setVSC(false);
+                        changed |= this.trackStatus.setBlueFlag(false);
+                        if (this.trackStatus.yellowSectors.size > 0) {
+                            this.trackStatus.yellowSectors.clear();
+                            changed = true;
+                        }
+                    } else if (status === 'SAFETYCAR') {
+                        changed |= this.trackStatus.setSafetyCar(true);
+                        changed |= this.trackStatus.setVSC(false);
+                        changed |= this.trackStatus.setRedFlag(false);
+                        if (this.trackStatus.yellowSectors.size > 0) {
+                            this.trackStatus.yellowSectors.clear();
+                            changed = true;
+                        }
+                    } else if (status === 'VSC') {
+                        changed |= this.trackStatus.setVSC(true);
+                        changed |= this.trackStatus.setSafetyCar(false);
+                        changed |= this.trackStatus.setRedFlag(false);
+                    } else if (status === 'VSCENDING') {
+                        // VSC ending - will be followed by AllClear
+                        changed |= this.trackStatus.setVSC(false);
+                    } else if (status === 'BLUE' || flagType === 'BLUE') {
+                        // Blue flag for specific driver (using structured field)
+                        if (driverNum) {
+                            this.activeBlueFlagCars[driverNum] = event.session_time;
+                            changed = true;
+                        }
+                    } else if (status === 'YELLOW' || flagType === 'YELLOW' || flagType === 'DOUBLE YELLOW') {
+                        // Yellow flag - use structured sector field if available
+                        if (!this.trackStatus.redFlag && !this.trackStatus.safetyCar) {
+                            if (sector > 0) {
+                                changed |= this.trackStatus.addYellowSector(sector);
+                            } else if (scope === 'Track') {
+                                // Global yellow (session.track_status) - track-wide yellow state
+                                // Don't add to sectors, just note it's yellow
+                            }
+                        }
+                    } else if (status === 'ALLCLEAR' || (scope === 'Track' && (flagType === 'GREEN' || flagType === 'CLEAR'))) {
+                        // Track clear - reset all states
+                        changed |= this.trackStatus.setRedFlag(false);
+                        changed |= this.trackStatus.setSafetyCar(false);
+                        changed |= this.trackStatus.setVSC(false);
+                        if (Object.keys(this.activeBlueFlagCars).length > 0) {
+                            this.activeBlueFlagCars = {};
+                            changed = true;
+                        }
+                        if (this.trackStatus.yellowSectors.size > 0) {
+                            this.trackStatus.yellowSectors.clear();
+                            changed = true;
+                        }
+                    } else if (scope === 'Sector' && (flagType === 'GREEN' || flagType === 'CLEAR')) {
+                        // Sector clear - use structured sector field
+                        if (sector > 0 && !this.trackStatus.redFlag) {
+                            changed |= this.trackStatus.removeYellowSector(sector);
+                        }
+                    } else if (status === 'CHEQUERED' || flagType === 'CHEQUERED') {
+                        // Race finished
+                        changed |= this.trackStatus.clearAll();
+                    }
+
+                    // Only log/display during normal playback, not scrubbing
+                    if (changed && !silent) {
+                        this.trackStatus.logStatusChange(event.session_time, message);
+                        this.raceControl.displayStatusMessage(event.session_time, message);
+                    }
+                    this.trackStatus.lastLoggedEventIndex = eventIndex;
+                }
+
+                // Update visual representation
                 this.updateTrackColor();
             }
 
@@ -2076,6 +2274,14 @@
                         this.trackColor = '#FF0000';
                         this.flashState = false;
                         break;
+                    case 'SC':
+                        this.trackColor = '#FFD700';  // Gold/yellow for Safety Car
+                        this.flashState = false;
+                        break;
+                    case 'VSC':
+                        this.trackColor = '#FFA500';  // Orange for Virtual Safety Car
+                        this.flashState = false;
+                        break;
                     case 'YELLOW':
                         // Yellow flags are sector-specific
                         this.trackColor = '#FFFFFF';
@@ -2086,6 +2292,20 @@
                         this.trackColor = '#FFFFFF';
                         this.flashState = false;
                 }
+
+                // Update pills visibility
+                this.updateStatusPills(globalStatus);
+            }
+
+            updateStatusPills(globalStatus) {
+                // Show/hide status pills based on current track status state
+                const scPill = document.getElementById('safetyCarPill');
+                const vscPill = document.getElementById('vscPill');
+                const redFlagPill = document.getElementById('redFlagPill');
+
+                if (scPill) scPill.classList.toggle('hidden', globalStatus !== 'SC');
+                if (vscPill) vscPill.classList.toggle('hidden', globalStatus !== 'VSC');
+                if (redFlagPill) redFlagPill.classList.toggle('hidden', globalStatus !== 'RED');
             }
 
             cleanupExpiredBlueFlags() {
@@ -2263,6 +2483,8 @@
                             y: interpolated.y,
                             progress: interpolated.progress,
                             timeToDriverAhead: interpolated.timeToDriverAhead,
+                            compound: interpolated.compound,
+                            tyreLife: interpolated.tyreLife,
                             color: driver.color
                         });
                     }
@@ -2297,13 +2519,19 @@
                 const time1 = telemetry.session_time[idx1];
                 const idx2 = idx1 + 1;
 
+                // Get tire info (no interpolation needed - use current value)
+                const compound = telemetry.Compound ? telemetry.Compound[idx1] : null;
+                const tyreLife = telemetry.TyreLife ? telemetry.TyreLife[idx1] : null;
+
                 // If we're at the last sample or beyond current time, return without interpolation
                 if (idx2 >= telemetry.session_time.length) {
                     return {
                         x: telemetry.X[idx1],
                         y: telemetry.Y[idx1],
                         progress: telemetry.progress ? telemetry.progress[idx1] : 0,
-                        timeToDriverAhead: telemetry.TimeToDriverAhead ? telemetry.TimeToDriverAhead[idx1] : null
+                        timeToDriverAhead: telemetry.TimeToDriverAhead ? telemetry.TimeToDriverAhead[idx1] : null,
+                        compound,
+                        tyreLife
                     };
                 }
 
@@ -2316,7 +2544,9 @@
                         x: telemetry.X[idx1],
                         y: telemetry.Y[idx1],
                         progress: telemetry.progress ? telemetry.progress[idx1] : 0,
-                        timeToDriverAhead: telemetry.TimeToDriverAhead ? telemetry.TimeToDriverAhead[idx1] : null
+                        timeToDriverAhead: telemetry.TimeToDriverAhead ? telemetry.TimeToDriverAhead[idx1] : null,
+                        compound,
+                        tyreLife
                     };
                 }
 
@@ -2337,20 +2567,23 @@
                 // Use nearest TimeToDriverAhead value (don't interpolate)
                 let timeToDriverAhead = telemetry.TimeToDriverAhead ? telemetry.TimeToDriverAhead[idx1] : null;
 
-                return { x, y, progress, timeToDriverAhead };
+                return { x, y, progress, timeToDriverAhead, compound, tyreLife };
             }
 
             updateStandings() {
                 const positions = this.getDriversAtTime();
 
-                // Check if standings actually changed (compare driver order) or if chase mode changed
-                const hasChanged = !this.previousPositions ||
+                // Update standings mode (time/tire cycling)
+                const modeChanged = this.updateStandingsMode(positions);
+
+                // Check if standings order changed (compare driver order) or if chase mode changed
+                const orderChanged = !this.previousPositions ||
                     this.previousPositions.length !== positions.length ||
                     this.previousPositions.some((p, i) => p.code !== positions[i].code) ||
                     this.previousChaseMode !== this.chaseMode;
 
-                // Only update DOM if standings changed
-                if (hasChanged) {
+                // Full rebuild if order changed or mode changed
+                if (orderChanged || modeChanged) {
                     const standings = document.getElementById('standings');
                     standings.innerHTML = '';
 
@@ -2369,22 +2602,17 @@
                             row.style.paddingLeft = '11px';
                         }
 
-                        // Show time gap to driver ahead (in seconds) or distance if time unavailable
-                        let gap;
-                        if (isDNF) {
-                            gap = 'DNF';
-                        } else if (idx === 0) {
-                            gap = 'LEADER';
-                        } else if (pos.timeToDriverAhead !== null && pos.timeToDriverAhead !== undefined) {
-                            gap = '+' + pos.timeToDriverAhead.toFixed(2) + 's';
-                        } else {
-                            // Fallback to distance if time unavailable
-                            gap = '+' + (positions[0].progress - pos.progress).toFixed(1) + 'm';
-                        }
-
                         // Keep team color, but make driver name grey if DNF
                         const displayColor = pos.color;
                         const nameColor = isDNF ? '#666666' : '#FFFFFF';
+
+                        // Generate info column based on standings mode
+                        let infoColumn;
+                        if (this.standingsMode === 'tire') {
+                            infoColumn = this.renderTireInfo(pos, isDNF);
+                        } else {
+                            infoColumn = this.renderTimeInfo(pos, idx, positions, isDNF);
+                        }
 
                         row.innerHTML = `
                             <div class="driver-position">${idx + 1}</div>
@@ -2394,7 +2622,7 @@
                                     <div class="driver-name" style="color: ${nameColor}">${pos.code}</div>
                                     <div class="driver-number">#${pos.number}</div>
                                 </div>
-                                <div class="driver-interval">${gap}</div>
+                                ${infoColumn}
                             </div>
                         `;
                         row.dataset.driver = pos.code;
@@ -2408,6 +2636,9 @@
 
                     this.previousPositions = positions;
                     this.previousChaseMode = this.chaseMode;
+                } else {
+                    // Just update the info column (time gaps or tire info) without full rebuild
+                    this.updateStandingsInfo(positions);
                 }
 
                 // Update chase mode position display if following a driver
@@ -2453,62 +2684,165 @@
                 this.updateFastestLapDisplay();
             }
 
-            updateRaceMessages() {
-                // Process track status events for pill notifications (SAFETY CAR, VSC, etc.)
-                for (let i = this.lastMessageIndexTrackStatus; i < this.trackStatusEvents.length; i++) {
-                    const event = this.trackStatusEvents[i];
-                    if (event && event.session_time <= this.currentTime) {
-                        this.updatePillNotifications(event.status, event.message);
-                        this.lastMessageIndexTrackStatus = i + 1;
-                    } else {
-                        break;  // Events are chronological, stop if we hit future time
-                    }
+            // Standings mode cycling: 75% time, 25% tire
+            // Minimum display: 15s real time or 1/2 lap (whichever is longer)
+            updateStandingsMode(positions) {
+                const now = Date.now();
+                const timeSinceSwitch = (now - this.standingsModeLastSwitch) / 1000;  // seconds
+
+                // Calculate current leader lap
+                let currentLap = 0;
+                if (positions.length > 0 && this.sessionData) {
+                    const trackLength = this.sessionData.metadata.track_length;
+                    currentLap = Math.floor(positions[0].progress / trackLength);
+                }
+                const lapsSinceSwitch = currentLap - this.standingsModeLastLap;
+
+                // Minimum thresholds
+                const MIN_TIME_SECONDS = 15;
+                const MIN_LAPS = 0.5;
+
+                // Check if minimum display time has passed
+                const minTimePassed = timeSinceSwitch >= MIN_TIME_SECONDS;
+                const minLapsPassed = lapsSinceSwitch >= MIN_LAPS;
+                const canSwitch = minTimePassed && minLapsPassed;
+
+                if (!canSwitch) {
+                    return false;
                 }
 
-                // Process race control messages through RaceControl manager
+                // Cycle mode based on 75%/25% split
+                // Time mode: 3 cycles, Tire mode: 1 cycle
+                // After time mode min duration, switch to tire
+                // After tire mode min duration, switch back to time
+                let shouldSwitch = false;
+
+                if (this.standingsMode === 'time') {
+                    // Time has 75% weight, so show for 3x the minimum
+                    const timeDuration = MIN_TIME_SECONDS * 3;
+                    if (timeSinceSwitch >= timeDuration || lapsSinceSwitch >= MIN_LAPS * 3) {
+                        shouldSwitch = true;
+                    }
+                } else {
+                    // Tire has 25% weight, show for 1x the minimum
+                    shouldSwitch = true;  // Already passed minimum, switch back to time
+                }
+
+                if (shouldSwitch) {
+                    this.standingsMode = this.standingsMode === 'time' ? 'tire' : 'time';
+                    this.standingsModeLastSwitch = now;
+                    this.standingsModeLastLap = currentLap;
+                    return true;
+                }
+
+                return false;
+            }
+
+            // Render time/gap info for a driver
+            renderTimeInfo(pos, idx, positions, isDNF) {
+                let gap;
+                if (isDNF) {
+                    gap = 'DNF';
+                } else if (idx === 0) {
+                    gap = 'LEADER';
+                } else if (pos.timeToDriverAhead !== null && pos.timeToDriverAhead !== undefined) {
+                    gap = '+' + pos.timeToDriverAhead.toFixed(2) + 's';
+                } else {
+                    // Fallback to distance if time unavailable
+                    gap = '+' + (positions[0].progress - pos.progress).toFixed(1) + 'm';
+                }
+                return `<div class="driver-interval">${gap}</div>`;
+            }
+
+            // Update just the info column (time/tire) without full DOM rebuild
+            updateStandingsInfo(positions) {
+                const standings = document.getElementById('standings');
+                const rows = standings.querySelectorAll('.driver-row');
+
+                rows.forEach((row, idx) => {
+                    const pos = positions[idx];
+                    if (!pos) return;
+
+                    const isDNF = this.isDriverRetired(pos.code);
+
+                    // Find and update the info element
+                    const infoContainer = row.querySelector('.driver-info');
+                    if (!infoContainer) return;
+
+                    // Remove old interval/tire element
+                    const oldInterval = infoContainer.querySelector('.driver-interval');
+                    const oldTire = infoContainer.querySelector('.driver-tire');
+                    if (oldInterval) oldInterval.remove();
+                    if (oldTire) oldTire.remove();
+
+                    // Add new info based on current mode
+                    if (this.standingsMode === 'tire') {
+                        infoContainer.insertAdjacentHTML('beforeend', this.renderTireInfo(pos, isDNF));
+                    } else {
+                        infoContainer.insertAdjacentHTML('beforeend', this.renderTimeInfo(pos, idx, positions, isDNF));
+                    }
+                });
+            }
+
+            // Render tire info for a driver
+            renderTireInfo(pos, isDNF) {
+                if (isDNF) {
+                    return `<div class="driver-tire"><span class="tire-laps">DNF</span></div>`;
+                }
+
+                // Get compound and tire life directly from position data
+                const compound = pos.compound ? pos.compound.toUpperCase() : null;
+                const tyreLife = pos.tyreLife;
+                const displayLife = (tyreLife !== null && tyreLife !== undefined) ? Math.round(tyreLife) : '?';
+
+                // Map compound to CSS class
+                let tireClass = 'tire-unknown';
+                if (compound === 'SOFT') tireClass = 'tire-soft';
+                else if (compound === 'MEDIUM') tireClass = 'tire-medium';
+                else if (compound === 'HARD') tireClass = 'tire-hard';
+                else if (compound === 'INTERMEDIATE') tireClass = 'tire-intermediate';
+                else if (compound === 'WET') tireClass = 'tire-wet';
+
+                return `<div class="driver-tire">
+                    <div class="tire-icon ${tireClass}"></div>
+                    <span class="tire-laps">${displayLife}</span>
+                </div>`;
+            }
+
+            updateRaceMessages() {
+                // Detect scrubbing (time went backwards) - reset indices
+                const isScrubbing = this.currentTime < this.lastProcessedStatusTime;
+                if (isScrubbing) {
+                    // Reset and rebuild silently
+                    this.activeEvents = { rain: false };
+                    this.rebuildActiveEventsSilently();
+                    return;
+                }
+
+                // Process race control messages through RaceControl manager (only during forward playback)
                 for (let i = this.raceControl.lastLoggedEventIndex + 1; i < this.raceControlEvents.length; i++) {
                     const event = this.raceControlEvents[i];
                     if (event && event.session_time <= this.currentTime) {
-                        // Add message and log it
                         this.raceControl.addMessage(event.session_time, event.message);
                         this.raceControl.logMessage(event.session_time, event.message);
                         this.raceControl.lastLoggedEventIndex = i;
                     } else {
-                        break;  // Events are chronological, stop if we hit future time
+                        break;
                     }
                 }
 
-                // Update standalone pill notifications based on active events
+                // Update pill notifications (rain check + use TrackStatus for SC/VSC/Red)
                 this.updateActivePillNotifications();
             }
 
-            updatePillNotifications(status, message) {
-                const text = (message || '').toUpperCase();
-                const statusText = (status || '').toUpperCase();
+            // Rebuild active events state silently (for scrubbing)
+            rebuildActiveEventsSilently() {
+                // Process all track status events up to current time (SC, VSC, Red, Yellow, etc.)
+                // This updates TrackStatus which is the single source of truth
+                this.processTrackStatusForward(true);  // silent = true
 
-                // Note: RED FLAG is now handled by TrackStatus (single source of truth)
-                // Only manage SAFETY CAR and VSC notifications here
-
-                // Check for SAFETY CAR starts
-                if (statusText === 'YELLOW' && (text.includes('SAFETY CAR') || text.includes('SC')) && !text.includes('VIRTUAL')) {
-                    this.activeEvents.safetyCar = true;
-                } else if ((statusText === 'YELLOW' || statusText === 'DOUBLE YELLOW') &&
-                           (text.includes('VIRTUAL SAFETY CAR') || text.includes('VSC'))) {
-                    this.activeEvents.vsc = true;
-                }
-
-                // Check for event clears
-                if (statusText === 'GREEN' && (text.includes('GREEN LIGHT') || text.includes('TRACK'))) {
-                    // Green light = clear SAFETY CAR and VSC
-                    // (RED FLAG is handled by TrackStatus)
-                    this.activeEvents.safetyCar = false;
-                    this.activeEvents.vsc = false;
-                } else if (text.includes('PIT EXIT CLOSED') || text.includes('RACE ENDED')) {
-                    // Race ended, clear SAFETY CAR and VSC
-                    // (RED FLAG is handled by TrackStatus)
-                    this.activeEvents.safetyCar = false;
-                    this.activeEvents.vsc = false;
-                }
+                // Update pill displays based on TrackStatus state
+                this.updateActivePillNotifications();
             }
 
             formatLapTime(seconds) {
@@ -2601,11 +2935,8 @@
                 this.activeEvents.rain = isRaining;
 
                 // Update pill visibility
-                // RED FLAG is driven by TrackStatus (single source of truth)
-                document.getElementById('redFlagPill').classList.toggle('hidden', !this.trackStatus.redFlag);
-                // SAFETY CAR and VSC are driven by race control messages
-                document.getElementById('safetyCarPill').classList.toggle('hidden', !this.activeEvents.safetyCar);
-                document.getElementById('vscPill').classList.toggle('hidden', !this.activeEvents.vsc);
+                // RED FLAG, SAFETY CAR, VSC are all driven by TrackStatus (single source of truth)
+                this.updateStatusPills(this.trackStatus.getGlobalStatus());
                 // RAIN is driven by rain events
                 document.getElementById('rainPill').classList.toggle('hidden', !this.activeEvents.rain);
             }

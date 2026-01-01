@@ -126,11 +126,20 @@ class SessionMetadata:
 
 @dataclass(frozen=True)
 class TrackStatusEvent:
-    """Track status change event."""
-    status: str  # "AllClear", "Yellow", "SafetyCar", "VirtualSafetyCar", "Red"
-    message: str
-    time: float = 0.0  # Original time value from FastF1
-    session_time: float = 0.0  # Normalized: seconds since session start (t0)
+    """
+    Track status/flag event (unified from track_status + race_control_messages).
+
+    Represents both global track states (SC, VSC, Red) and specific flags (Yellow sector, Blue for driver).
+    """
+    session_time: float  # Seconds since session start (t0)
+    status: str  # "AllClear", "Yellow", "SafetyCar", "VSC", "VSCEnding", "Red"
+    message: str = ""
+    # Flag details (for detailed flag events from race_control_messages)
+    flag_type: str = ""  # "YELLOW", "DOUBLE_YELLOW", "BLUE", "GREEN", "CLEAR", "CHEQUERED"
+    scope: str = "Track"  # "Track", "Sector", "Driver"
+    sector: int = 0  # Sector number for sector flags
+    driver_num: str = ""  # Driver number for blue flags
+    lap: int = 0  # Lap number when flag was shown
 
 
 @dataclass(frozen=True)
@@ -157,7 +166,9 @@ class WeatherSample:
 @dataclass(frozen=True)
 class EventsData:
     """All events during session (stored as Polars DataFrames for efficiency)."""
-    track_status: pl.DataFrame = field(default_factory=lambda: pl.DataFrame())  # Columns: status, message, time, session_time
+    # Unified track status: merges session.track_status + race_control_messages[Category='Flag']
+    # Columns: session_time, status, message, flag_type, scope, sector, driver_num, lap
+    track_status: pl.DataFrame = field(default_factory=lambda: pl.DataFrame())
     race_control: pl.DataFrame = field(default_factory=lambda: pl.DataFrame())  # Columns: message, time, session_time
     weather: pl.DataFrame = field(default_factory=lambda: pl.DataFrame())  # Columns: temperature, humidity, wind_speed, wind_direction, track_temperature, rainfall, time, session_time
 

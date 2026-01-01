@@ -112,32 +112,45 @@ class SessionProcessor:
         Find the actual race start time (lights out / formation lap start) from events.
 
         For race sessions (R), this is when the formation lap actually starts,
-        which corresponds to the second GREEN LIGHT event in track_status.
+        which corresponds to the second GREEN LIGHT event in race_control messages.
 
         Args:
-            events: EventsData with track status events
+            events: EventsData with track status and race control events
             session_type: Type of session ("R", "Q", "FP1", etc.)
 
         Returns:
             session_time offset in seconds, or None if not found
         """
-        if session_type != "R" or len(events.track_status) == 0:
+        if session_type != "R":
             return None
 
         try:
-            # Convert to list of dicts for easier filtering
-            track_status_list = events.track_status.to_dicts()
+            # Look for GREEN LIGHT events in race_control messages
+            if len(events.race_control) > 0:
+                race_control_list = events.race_control.to_dicts()
 
-            # Look for GREEN LIGHT events that happen during the race
-            # The first GREEN LIGHT (around -2400s) is pre-race pit exit open
-            # The second GREEN LIGHT (around 100-300s) is formation lap start
-            green_lights = [e for e in track_status_list if e.get('status') == 'GREEN' and 'GREEN LIGHT' in e.get('message', '')]
+                # GREEN LIGHT messages indicate pit exit open / race start
+                # The first GREEN LIGHT (around -2400s) is pre-race pit exit open
+                # The second GREEN LIGHT (around 0s) is formation lap start
+                green_lights = [e for e in race_control_list
+                               if 'GREEN LIGHT' in e.get('message', '').upper()]
 
-            if len(green_lights) >= 2:
-                # Use the second GREEN LIGHT as race start (lights out)
-                race_start_time = green_lights[1].get('session_time')
-                if race_start_time is not None:
-                    return float(race_start_time)
+                if len(green_lights) >= 2:
+                    # Use the second GREEN LIGHT as race start
+                    race_start_time = green_lights[1].get('session_time')
+                    if race_start_time is not None:
+                        return float(race_start_time)
+
+            # Fallback: use first AllClear from track_status that's near session start
+            if len(events.track_status) > 0:
+                track_status_list = events.track_status.to_dicts()
+                for e in track_status_list:
+                    if e.get('status') == 'AllClear':
+                        session_time = e.get('session_time', 0)
+                        # First AllClear should be right after lights out (< 60 seconds)
+                        if 0 <= session_time < 60:
+                            return float(session_time)
+
         except Exception:
             pass
 
@@ -278,12 +291,9 @@ class SessionProcessor:
         if not telemetry:
             return None
 
-        # For event normalization, use the telemetry start time
-        telemetry_t0 = self._get_true_session_start_from_telemetry(telemetry)
-        event_t0 = telemetry_t0 if telemetry_t0 else metadata.t0_date_utc
-
         # Build events (track status, weather, race control)
-        events = self._build_events(f1_session, event_t0)
+        # Uses session.date as reference for time normalization
+        events = self._build_events(f1_session)
 
         # Build results (fastest laps, position history)
         results = self._build_results(f1_session, telemetry, metadata.t0_date_utc)
@@ -407,6 +417,10 @@ class SessionProcessor:
                         if tel is not None and not tel.empty:
                             tel = tel.copy()
                             tel['LapNumber'] = lap['LapNumber']
+
+                            # Add tire info from lap data
+                            tel['Compound'] = lap.get('Compound', None)  # SOFT, MEDIUM, HARD, INTERMEDIATE, WET
+                            tel['TyreLife'] = lap.get('TyreLife', None)  # Laps on current set
 
                             # Add SessionTime if not present (lap_start + relative_time)
                             if 'SessionTime' not in tel.columns and 'Time' in tel.columns:
@@ -550,49 +564,69 @@ class SessionProcessor:
 
         return result
 
-    def _build_events(self, f1_session, t0_date_utc: Optional[str] = None) -> EventsData:
+    def _build_events(self, f1_session) -> EventsData:
         """
         Build events data (track status, weather, messages).
 
-        All event times are normalized to session start (t0 = 0).
-        Note: FastF1 events use absolute timestamps (seconds of day),
-        so we use t0_date_utc to establish the session start reference.
+        All event times are normalized to session.date (official session start).
+
+        IMPORTANT: FastF1 uses two different time references:
+        - session.date: Official session start time (e.g., 15:00:00)
+        - session.t0_date: Timing system zero point (often ~52 min before session.date)
+
+        track_status.Time and laps data use timedeltas from t0_date.
+        race_control_messages.Time are absolute timestamps.
+
+        We normalize everything to session.date for consistency.
 
         Args:
             f1_session: FastF1 session object
-            t0_date_utc: Session start time in ISO format (from metadata)
 
         Extracts:
         - Track status changes (yellows, reds, SCs, VSCs)
         - Race control messages
         - Weather samples throughout session
         """
-        # Convert t0_date_utc to seconds of day for event normalization
-        # FastF1 events use absolute timestamps, so we need the actual session start time
-        t0_seconds_of_day = self._get_session_start_seconds_of_day(t0_date_utc)
+        # Use session.date as the common reference for ALL event times
+        session_date = getattr(f1_session, 'date', None)
+        t0_date = getattr(f1_session, 't0_date', None)
 
-        # Parse t0_date_utc as datetime for precise timestamp comparison
+        t0_seconds_of_day = None
         t0_datetime = None
-        if t0_date_utc:
+        t0_offset = 0.0  # Offset: (t0_date - session.date) in seconds
+
+        if session_date is not None:
             try:
-                if 'T' in str(t0_date_utc):
-                    t0_datetime = datetime.datetime.fromisoformat(str(t0_date_utc).replace('Z', '+00:00'))
-                else:
-                    t0_datetime = datetime.datetime.fromisoformat(str(t0_date_utc))
+                if not isinstance(session_date, pd.Timestamp):
+                    session_date = pd.Timestamp(session_date)
+                t0_datetime = session_date
+                t0_seconds_of_day = session_date.hour * 3600 + session_date.minute * 60 + session_date.second + session_date.microsecond / 1e6
+
+                # Calculate offset between t0_date and session.date
+                # track_status uses timedeltas from t0_date, so we need to adjust
+                if t0_date is not None:
+                    if not isinstance(t0_date, pd.Timestamp):
+                        t0_date = pd.Timestamp(t0_date)
+                    t0_offset = (t0_date - session_date).total_seconds()
+                    # t0_offset is typically negative (t0_date is before session.date)
             except Exception:
                 pass
 
-        track_status_list = self._extract_track_status(f1_session, t0_seconds_of_day, t0_datetime)
+        track_status_list = self._extract_track_status(f1_session, t0_seconds_of_day, t0_datetime, t0_offset)
         race_control_list = self._extract_race_control_messages(f1_session, t0_seconds_of_day, t0_datetime)
         weather_list = self._extract_weather_data(f1_session, t0_seconds_of_day, t0_datetime)
 
         # Convert lists to Polars DataFrames for efficient storage and querying
         track_status_df = pl.DataFrame([
             {
+                'session_time': event.session_time,
                 'status': event.status,
                 'message': event.message,
-                'time': event.time,
-                'session_time': event.session_time
+                'flag_type': event.flag_type,
+                'scope': event.scope,
+                'sector': event.sector,
+                'driver_num': event.driver_num,
+                'lap': event.lap
             }
             for event in track_status_list
         ]) if track_status_list else pl.DataFrame()
@@ -630,72 +664,215 @@ class SessionProcessor:
         )
 
     def _extract_track_status(self, f1_session, t0_seconds_of_day: Optional[float] = None,
-                            t0_datetime=None) -> list[TrackStatusEvent]:
-        """Extract track status changes from messages (normalized to session start)."""
-        track_status = []
+                            t0_datetime=None, t0_offset: float = 0.0) -> list[TrackStatusEvent]:
+        """
+        Extract unified track status from both session.track_status AND race_control_messages.
 
+        Merges:
+        - session.track_status: Yellow, Red, AllClear (global states) - SC/VSC now included with corrected timing
+        - race_control_messages[Category='Flag']: Detailed flags (Yellow sectors, Blue for drivers)
+        - race_control_messages[Category='SafetyCar']: SC/VSC deployment (accurate timestamps)
+
+        Args:
+            t0_offset: Offset in seconds between t0_date and session.date.
+                       track_status timedeltas are relative to t0_date, so we add this offset
+                       to convert to session.date-relative time.
+                       Typically negative (e.g., -3106 if t0_date is 52 min before session.date).
+
+        Returns list sorted by session_time.
+        """
+        events = []
+
+        # Status code to human-readable mapping (from session.track_status)
+        # Now includes SC/VSC since we have corrected timing via t0_offset
+        STATUS_MAP = {
+            '1': 'AllClear',
+            '2': 'Yellow',
+            '3': 'Unknown',
+            '4': 'SafetyCar',
+            '5': 'Red',
+            '6': 'VSC',
+            '7': 'VSCEnding',
+        }
+
+        # Flag type to status mapping (from race_control_messages)
+        FLAG_TO_STATUS = {
+            'YELLOW': 'Yellow',
+            'DOUBLE YELLOW': 'Yellow',
+            'GREEN': 'AllClear',
+            'CLEAR': 'AllClear',
+            'BLUE': 'Blue',
+            'CHEQUERED': 'Chequered',
+        }
+
+        # =====================================================================
+        # 1. Extract from session.track_status (all status types with corrected timing)
+        # track_status.Time is a timedelta from t0_date, so we add t0_offset to
+        # convert to session.date-relative time
+        # =====================================================================
         try:
-            # FastF1 exposes messages as race_control_messages
+            if hasattr(f1_session, 'track_status') and f1_session.track_status is not None:
+                ts_df = f1_session.track_status
+                for _, row in ts_df.iterrows():
+                    try:
+                        status_code = str(row.get('Status', ''))
+                        message = row.get('Message', '')
+                        status = STATUS_MAP.get(status_code, str(message) if message else status_code)
+
+                        # Parse time (timedelta from t0_date, NOT session.date)
+                        time_value = row.get('Time', None)
+                        if time_value is not None and hasattr(time_value, 'total_seconds'):
+                            # Timedelta from t0_date - add offset to convert to session.date-relative
+                            session_time = time_value.total_seconds() + t0_offset
+                        else:
+                            session_time = self._parse_time_to_session_seconds(
+                                time_value, t0_seconds_of_day, t0_datetime
+                            )
+
+                        events.append(TrackStatusEvent(
+                            session_time=session_time,
+                            status=status,
+                            message=str(message) if pd.notna(message) else status,
+                            flag_type="",
+                            scope="Track",
+                            sector=0,
+                            driver_num="",
+                            lap=0
+                        ))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        # =====================================================================
+        # 2. Extract from race_control_messages (flags AND safety car)
+        # =====================================================================
+        try:
             messages_df = None
             if hasattr(f1_session, 'race_control_messages') and f1_session.race_control_messages is not None:
                 messages_df = f1_session.race_control_messages
             elif hasattr(f1_session, 'messages') and f1_session.messages is not None:
                 messages_df = f1_session.messages
 
-            if messages_df is None or len(messages_df) == 0:
-                return track_status
+            if messages_df is not None and len(messages_df) > 0 and 'Category' in messages_df.columns:
+                # Extract Flag messages
+                flag_messages = messages_df[messages_df['Category'] == 'Flag']
 
-            # Filter for track status messages (FastF1 uses 'Flag' for status)
-            if 'Category' in messages_df.columns:
-                status_messages = messages_df[messages_df['Category'] == 'Flag']
-
-                for _, row in status_messages.iterrows():
+                for _, row in flag_messages.iterrows():
                     try:
-                        # Extract flag type and message
-                        status = row.get('Flag', row.get('Status', 'Unknown'))
-                        message = row.get('Message', '')
+                        flag_type = str(row.get('Flag', '')).upper()
+                        message = str(row.get('Message', ''))
+                        scope = str(row.get('Scope', 'Track'))
+                        sector = int(row.get('Sector', 0)) if pd.notna(row.get('Sector')) else 0
+                        driver_num = str(row.get('RacingNumber', '')) if pd.notna(row.get('RacingNumber')) else ''
+                        lap = int(row.get('Lap', 0)) if pd.notna(row.get('Lap')) else 0
 
-                        # Get time value (FastF1 provides this as pd.Timestamp)
+                        # Parse time
                         time_value = row.get('Time', None)
-                        time_float = 0.0
-                        session_time = 0.0
+                        session_time = self._parse_time_to_session_seconds(
+                            time_value, t0_seconds_of_day, t0_datetime
+                        )
 
-                        if time_value is not None:
-                            try:
-                                # Handle different time formats from FastF1
-                                if isinstance(time_value, pd.Timestamp):
-                                    # For absolute timestamps: store seconds of day as original time
-                                    time_float = time_value.hour * 3600 + time_value.minute * 60 + time_value.second + time_value.microsecond / 1e6
-                                    # Calculate session-relative time using datetime comparison
-                                    if t0_datetime is not None:
-                                        session_time = (time_value - t0_datetime).total_seconds()
-                                    elif t0_seconds_of_day is not None:
-                                        session_time = time_float - t0_seconds_of_day
-                                elif hasattr(time_value, 'total_seconds'):
-                                    # Handle timedelta objects (already relative to session start)
-                                    time_float = time_value.total_seconds()
-                                    session_time = time_float
-                                else:
-                                    # Numeric value
-                                    time_float = float(time_value)
-                                    session_time = time_float
-                            except:
-                                time_float = 0.0
-                                session_time = 0.0
+                        # Map flag to status
+                        status = FLAG_TO_STATUS.get(flag_type, 'Flag')
 
-                        track_status.append(TrackStatusEvent(
-                            status=str(status),
-                            message=str(message) if pd.notna(message) else '',
-                            time=time_float,
-                            session_time=session_time
+                        events.append(TrackStatusEvent(
+                            session_time=session_time,
+                            status=status,
+                            message=message,
+                            flag_type=flag_type,
+                            scope=scope,
+                            sector=sector,
+                            driver_num=driver_num,
+                            lap=lap
                         ))
                     except Exception:
-                        pass  # Skip malformed entries
+                        pass
 
+                # =====================================================================
+                # 3. Extract SafetyCar/VSC from race_control_messages (accurate timing)
+                # =====================================================================
+                sc_messages = messages_df[messages_df['Category'] == 'SafetyCar']
+
+                for _, row in sc_messages.iterrows():
+                    try:
+                        message = str(row.get('Message', ''))
+                        message_upper = message.upper()
+
+                        # Parse time (absolute timestamp - accurate)
+                        time_value = row.get('Time', None)
+                        session_time = self._parse_time_to_session_seconds(
+                            time_value, t0_seconds_of_day, t0_datetime
+                        )
+
+                        # Determine SC/VSC type from message
+                        if 'VIRTUAL' in message_upper or 'VSC' in message_upper:
+                            if 'ENDING' in message_upper:
+                                status = 'VSCEnding'
+                            else:
+                                status = 'VSC'
+                        elif 'SAFETY CAR' in message_upper or 'SC ' in message_upper:
+                            if 'IN THIS LAP' in message_upper:
+                                status = 'SCEnding'  # SC coming in
+                            else:
+                                status = 'SafetyCar'
+                        else:
+                            status = 'SafetyCar'  # Default for Category=SafetyCar
+
+                        events.append(TrackStatusEvent(
+                            session_time=session_time,
+                            status=status,
+                            message=message,
+                            flag_type="",
+                            scope="Track",
+                            sector=0,
+                            driver_num="",
+                            lap=0
+                        ))
+                    except Exception:
+                        pass
         except Exception:
-            pass  # Return empty if extraction fails
+            pass
 
-        return track_status
+        # Sort by session_time
+        events.sort(key=lambda e: e.session_time)
+
+        # Filter out post-race events (after chequered flag)
+        # FastF1 sometimes includes track_status data from after the race ends
+        chequered_time = None
+        for e in events:
+            if e.status == 'Chequered' or e.flag_type == 'CHEQUERED':
+                chequered_time = e.session_time
+                break
+
+        if chequered_time is not None:
+            # Keep all events up to and including chequered, filter out anything after
+            events = [e for e in events if e.session_time <= chequered_time + 60]  # +60s buffer
+
+        return events
+
+    def _parse_time_to_session_seconds(self, time_value, t0_seconds_of_day: Optional[float],
+                                        t0_datetime) -> float:
+        """Parse FastF1 time value to session-relative seconds."""
+        if time_value is None:
+            return 0.0
+
+        try:
+            if hasattr(time_value, 'total_seconds'):
+                # Timedelta - already relative to session start
+                return time_value.total_seconds()
+            elif isinstance(time_value, pd.Timestamp):
+                # Absolute timestamp
+                if t0_datetime is not None:
+                    return (time_value - t0_datetime).total_seconds()
+                elif t0_seconds_of_day is not None:
+                    time_float = time_value.hour * 3600 + time_value.minute * 60 + time_value.second + time_value.microsecond / 1e6
+                    return time_float - t0_seconds_of_day
+                return 0.0
+            else:
+                return float(time_value)
+        except Exception:
+            return 0.0
 
     def _extract_race_control_messages(self, f1_session, t0_seconds_of_day: Optional[float] = None,
                                       t0_datetime=None) -> list[RaceControlMessage]:

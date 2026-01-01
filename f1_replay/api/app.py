@@ -7,15 +7,34 @@ Creates Flask app with 3 main endpoints matching 3-tier backend architecture:
 - GET /api/session/<year>/<round>/<session_type> - Complete session data
 """
 
-from flask import Flask, jsonify, request, render_template
+from flask import Flask, jsonify, request, render_template, Response
 from typing import Optional
+from datetime import datetime
 import math
+
+try:
+    import orjson
+    HAS_ORJSON = True
+except ImportError:
+    HAS_ORJSON = False
 
 try:
     from flask_cors import CORS
     HAS_CORS = True
 except ImportError:
     HAS_CORS = False
+
+
+def fast_jsonify(data: dict, status: int = 200) -> Response:
+    """Fast JSON response using orjson if available."""
+    if HAS_ORJSON:
+        return Response(
+            orjson.dumps(data),
+            status=status,
+            mimetype='application/json'
+        )
+    else:
+        return jsonify(data), status
 
 from f1_replay.data_loader import DataLoader
 from f1_replay.session import Session
@@ -28,6 +47,87 @@ from f1_replay.api.serializers import (
     serialize_position_history,
     serialize_fastest_laps,
 )
+
+
+def _get_scheduled_session_info(data_loader: DataLoader, year: int, round_num: int, session_type: str) -> Optional[dict]:
+    """
+    Get scheduled session info for a future race.
+
+    Returns dict with scheduled date/time if race is in the future, None otherwise.
+    """
+    try:
+        # Get event schedule from FastF1
+        import fastf1
+        event = fastf1.get_event(year, round_num)
+        if event is None:
+            return None
+
+        # Map session type to session number (Session1-5)
+        session_map = {
+            'FP1': 'Session1', 'FP2': 'Session2', 'FP3': 'Session3',
+            'Q': 'Session4', 'R': 'Session5',
+            'S': 'Session4',  # Sprint is usually Session4 on sprint weekends
+            'SQ': 'Session3',  # Sprint Qualifying
+        }
+
+        # Also handle user-friendly names
+        friendly_map = {
+            'Practice1': 'FP1', 'Practice2': 'FP2', 'Practice3': 'FP3',
+            'Qualifying': 'Q', 'Race': 'R', 'Sprint': 'S', 'SprintQualifying': 'SQ'
+        }
+
+        # Normalize session type
+        normalized = friendly_map.get(session_type, session_type)
+        session_key = session_map.get(normalized)
+
+        if not session_key:
+            return None
+
+        # Get session date
+        date_key = f"{session_key}Date"
+        session_date = event.get(date_key)
+
+        if session_date is None:
+            # Try to find session by name in the schedule
+            for i in range(1, 6):
+                if event.get(f'Session{i}') == normalized:
+                    session_date = event.get(f'Session{i}Date')
+                    break
+
+        if session_date is None:
+            return None
+
+        # Check if session is in the future
+        now = datetime.now(session_date.tzinfo) if session_date.tzinfo else datetime.now()
+        if session_date <= now:
+            return None  # Session already happened, let normal error handling proceed
+
+        # Format the date nicely
+        # e.g., "Sun 15th September at 16:00"
+        day_suffix = lambda d: 'th' if 11 <= d <= 13 else {1: 'st', 2: 'nd', 3: 'rd'}.get(d % 10, 'th')
+        formatted_date = session_date.strftime(f"%a {session_date.day}{day_suffix(session_date.day)} %B at %H:%M")
+
+        # Get event name from seasons catalog
+        seasons = data_loader.load_seasons()
+        event_name = ""
+        if seasons and year in seasons.years:
+            for r in seasons.years[year].rounds:
+                if r.round_number == round_num:
+                    event_name = r.event_name
+                    break
+
+        return {
+            'scheduled': True,
+            'event_name': event_name or event.get('EventName', ''),
+            'session_type': session_type,
+            'scheduled_date': session_date.isoformat(),
+            'scheduled_date_formatted': formatted_date,
+            'message': f"The {session_type} is scheduled for {formatted_date}"
+        }
+
+    except Exception as e:
+        print(f"Could not get scheduled info: {e}")
+        return None
 
 
 def create_app(data_loader: DataLoader, current_session: Optional[Session] = None, force_update: bool = False) -> Flask:
@@ -155,7 +255,7 @@ def create_app(data_loader: DataLoader, current_session: Optional[Session] = Non
             metadata = weekend_data.metadata
 
             # Build response
-            return jsonify({
+            return fast_jsonify({
                 'metadata': {
                     'year': metadata.year,
                     'round': metadata.round_number,
@@ -188,7 +288,7 @@ def create_app(data_loader: DataLoader, current_session: Optional[Session] = Non
                         for seg in weekend_data.circuit.track_segments
                     ]
                 }
-            }), 200
+            })
 
         except Exception as e:
             return jsonify({'error': str(e)}), 500
@@ -241,6 +341,10 @@ def create_app(data_loader: DataLoader, current_session: Optional[Session] = Non
 
                 session_data = data_loader.load_session(year, round_num, session_type, force_reprocess=force_reprocess)
                 if session_data is None:
+                    # Check if this is a future race - return scheduled date
+                    scheduled_info = _get_scheduled_session_info(data_loader, year, round_num, session_type)
+                    if scheduled_info:
+                        return jsonify(scheduled_info), 200
                     return jsonify({'error': f'Session {year}/{round_num}/{session_type} not found'}), 404
 
                 session = Session(session_data, weekend)
@@ -255,7 +359,7 @@ def create_app(data_loader: DataLoader, current_session: Optional[Session] = Non
             metadata = session._data.metadata
 
             # Build response
-            return jsonify({
+            return fast_jsonify({
                 'metadata': {
                     'session_type': session.session_type,
                     'year': session.year,
@@ -277,7 +381,7 @@ def create_app(data_loader: DataLoader, current_session: Optional[Session] = Non
                 },
                 'order': to_json_safe(session.order),
                 'rain_events': serialize_rain_events(session.rain_events)
-            }), 200
+            })
 
         except Exception as e:
             return jsonify({'error': str(e)}), 500

@@ -57,14 +57,17 @@ class DataLoader:
         File: race_data/seasons.pkl
 
         Args:
-            years: List of years to fetch (default: [2023, 2024])
+            years: List of years to fetch (default: current year + 2 previous years)
             force_update: Force rebuild from FastF1
 
         Returns:
             F1Seasons object or None
         """
         if years is None:
-            years = [2023, 2024]
+            # Default: current year and 5 previous years
+            from datetime import datetime
+            current_year = datetime.now().year
+            years = list(range(current_year - 5, current_year + 1))
 
         seasons_path = self.cache_dir / "seasons.pkl"
 

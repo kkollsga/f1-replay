@@ -88,7 +88,17 @@ def serialize_telemetry(telemetry_dict: Dict[str, pl.DataFrame],
         e.g., {'VER': {'session_time': [0.0, 0.076, ...], 'LapNumber': [1, 1, ...]}}
     """
     if fields is None:
-        fields = ['session_time', 'LapNumber', 'X', 'Y', 'Distance', 'progress', 'TimeToDriverAhead', 'status']
+        fields = ['session_time', 'LapNumber', 'X', 'Y', 'Distance', 'progress', 'TimeToDriverAhead', 'status', 'Compound', 'TyreLife']
+
+    # Fields that should be rounded to reduce JSON size
+    ROUND_PRECISION = {
+        'session_time': 2,  # 0.01s precision
+        'X': 1,             # 0.1m precision
+        'Y': 1,             # 0.1m precision
+        'Distance': 1,      # 0.1m precision
+        'progress': 4,      # 0.0001 precision (fraction of lap)
+        'TimeToDriverAhead': 3,  # 0.001s precision
+    }
 
     result = {}
 
@@ -101,14 +111,16 @@ def serialize_telemetry(telemetry_dict: Dict[str, pl.DataFrame],
             continue
 
         # Select only needed columns and convert to dict efficiently
-        # Polars handles null values and type conversion natively
         subset_df = tel_df.select(available_fields)
         driver_data = {}
         for field in available_fields:
             col = subset_df[field]
             # Use Polars native conversion - much faster than per-item
-            # fill_nan converts NaN to null, then to_list handles null as None
             if col.dtype in (pl.Float32, pl.Float64):
+                # Round floats to reduce JSON size
+                precision = ROUND_PRECISION.get(field)
+                if precision is not None:
+                    col = col.round(precision)
                 driver_data[field] = col.fill_nan(None).to_list()
             else:
                 driver_data[field] = col.to_list()

@@ -4,13 +4,75 @@ Manager - Top-level coordinator for seasons catalog and race launching.
 Provides convenient access to seasons data and methods to load races and launch the Flask viewer.
 """
 
-from typing import Union, Optional, List
+from typing import Union, Optional, List, Dict, Any
+from datetime import datetime
 import webbrowser
 
 from f1_replay.data_loader import DataLoader, F1Seasons, F1Year
 from f1_replay.race_weekend import RaceWeekend
 from f1_replay.session import Session
 from f1_replay.config import get_cache_dir
+
+
+class ScheduleList(list):
+    """
+    List of schedule items with pretty printing support.
+
+    Each item is a dict with: title, start, end, session_type, round, location
+    """
+
+    def __init__(self, items: List[Dict[str, Any]], schedule_type: str = "Schedule"):
+        super().__init__(items)
+        self.schedule_type = schedule_type
+
+    def __getitem__(self, key):
+        result = super().__getitem__(key)
+        if isinstance(key, slice):
+            return ScheduleList(result, self.schedule_type)
+        return result
+
+    def __repr__(self) -> str:
+        return self._format_table()
+
+    def __str__(self) -> str:
+        return self._format_table()
+
+    def _format_table(self) -> str:
+        if not self:
+            return f"\n  No {self.schedule_type.lower()} events found.\n"
+
+        # Build formatted output
+        lines = [f"\n  {self.schedule_type}", "  " + "=" * 70]
+
+        for item in self:
+            # Parse start time
+            start = item.get('start')
+            if isinstance(start, str):
+                try:
+                    start = datetime.fromisoformat(start.replace('Z', '+00:00'))
+                except:
+                    pass
+
+            # Format date/time
+            if isinstance(start, datetime):
+                date_str = start.strftime("%a %d %b")
+                time_str = start.strftime("%H:%M")
+            else:
+                date_str = str(start)[:10] if start else "TBD"
+                time_str = ""
+
+            title = item.get('title', 'Unknown')
+            location = item.get('location', '')
+            round_num = item.get('round', '')
+
+            # Format: "  R01  Sun 16 Mar  15:00  Bahrain Grand Prix (Sakhir)"
+            round_str = f"R{round_num:02d}" if isinstance(round_num, int) else str(round_num)
+            loc_str = f"({location})" if location else ""
+
+            lines.append(f"  {round_str}  {date_str}  {time_str:>5}  {title} {loc_str}")
+
+        lines.append("")
+        return "\n".join(lines)
 
 
 class Manager:
@@ -90,6 +152,245 @@ class Manager:
         if seasons is None:
             return []
         return sorted(seasons.years.keys())
+
+    # =========================================================================
+    # Schedule Methods
+    # =========================================================================
+
+    def _get_event_schedule(self, year: int):
+        """Get FastF1 event schedule for a year."""
+        import fastf1
+        return fastf1.get_event_schedule(year)
+
+    def _build_schedule_item(self, event, session_num: int, round_num: int) -> Optional[Dict[str, Any]]:
+        """Build a schedule item dict from event row and session number."""
+        session_name = event.get(f'Session{session_num}')
+        session_date = event.get(f'Session{session_num}Date')
+
+        if not session_name or session_date is None:
+            return None
+
+        # Get end time (estimate 2 hours for races, 1 hour for others)
+        duration_hours = 2 if session_name in ['Race', 'Sprint'] else 1
+        try:
+            end_time = session_date + __import__('datetime').timedelta(hours=duration_hours)
+        except:
+            end_time = None
+
+        return {
+            'title': f"{event.get('EventName', '')} - {session_name}",
+            'start': session_date.isoformat() if hasattr(session_date, 'isoformat') else str(session_date),
+            'end': end_time.isoformat() if end_time and hasattr(end_time, 'isoformat') else None,
+            'session_type': session_name,
+            'round': round_num,
+            'location': event.get('Location', ''),
+            'country': event.get('Country', ''),
+            'event_name': event.get('EventName', '')
+        }
+
+    def weekend_schedule(self, year: int) -> ScheduleList:
+        """
+        Get all race weekends for a season (excludes testing events).
+
+        Args:
+            year: Season year
+
+        Returns:
+            ScheduleList with weekend events (title, start, end for each weekend)
+        """
+        schedule = self._get_event_schedule(year)
+        if schedule is None:
+            return ScheduleList([], f"{year} Race Weekends")
+
+        items = []
+        for _, event in schedule.iterrows():
+            round_num = event.get('RoundNumber', 0)
+            event_name = event.get('EventName', '')
+
+            # Skip testing/non-race events
+            if round_num == 0 or 'Test' in event_name:
+                continue
+
+            event_date = event.get('EventDate')
+            # Weekend spans from first session to race
+            session1_date = event.get('Session1Date')
+            session5_date = event.get('Session5Date')
+
+            items.append({
+                'title': event_name,
+                'start': (session1_date.isoformat() if hasattr(session1_date, 'isoformat')
+                         else str(event_date)[:10] if event_date else None),
+                'end': (session5_date.isoformat() if hasattr(session5_date, 'isoformat')
+                       else str(event_date)[:10] if event_date else None),
+                'round': round_num,
+                'location': event.get('Location', ''),
+                'country': event.get('Country', '')
+            })
+
+        return ScheduleList(items, f"{year} Race Weekends")
+
+    def race_schedule(self, year: int) -> ScheduleList:
+        """
+        Get race session schedule for a season.
+
+        Args:
+            year: Season year
+
+        Returns:
+            ScheduleList with race events
+        """
+        schedule = self._get_event_schedule(year)
+        if schedule is None:
+            return ScheduleList([], f"{year} Races")
+
+        items = []
+        for _, event in schedule.iterrows():
+            round_num = event.get('RoundNumber', 0)
+            if round_num == 0:
+                continue
+
+            # Find Race session (usually Session5, but check by name)
+            for i in range(1, 6):
+                if event.get(f'Session{i}') == 'Race':
+                    item = self._build_schedule_item(event, i, round_num)
+                    if item:
+                        item['title'] = event.get('EventName', '')  # Cleaner title
+                        items.append(item)
+                    break
+
+        return ScheduleList(items, f"{year} Races")
+
+    def sprint_schedule(self, year: int) -> ScheduleList:
+        """
+        Get sprint race schedule for a season.
+
+        Args:
+            year: Season year
+
+        Returns:
+            ScheduleList with sprint race events
+        """
+        schedule = self._get_event_schedule(year)
+        if schedule is None:
+            return ScheduleList([], f"{year} Sprint Races")
+
+        items = []
+        for _, event in schedule.iterrows():
+            round_num = event.get('RoundNumber', 0)
+            if round_num == 0:
+                continue
+
+            # Find Sprint session
+            for i in range(1, 6):
+                if event.get(f'Session{i}') == 'Sprint':
+                    item = self._build_schedule_item(event, i, round_num)
+                    if item:
+                        item['title'] = event.get('EventName', '')
+                        items.append(item)
+                    break
+
+        return ScheduleList(items, f"{year} Sprint Races")
+
+    def qualification_schedule(self, year: int) -> ScheduleList:
+        """
+        Get qualifying session schedule for a season.
+
+        Args:
+            year: Season year
+
+        Returns:
+            ScheduleList with qualifying events
+        """
+        schedule = self._get_event_schedule(year)
+        if schedule is None:
+            return ScheduleList([], f"{year} Qualifying")
+
+        items = []
+        for _, event in schedule.iterrows():
+            round_num = event.get('RoundNumber', 0)
+            if round_num == 0:
+                continue
+
+            # Find Qualifying session
+            for i in range(1, 6):
+                if event.get(f'Session{i}') == 'Qualifying':
+                    item = self._build_schedule_item(event, i, round_num)
+                    if item:
+                        item['title'] = event.get('EventName', '')
+                        items.append(item)
+                    break
+
+        return ScheduleList(items, f"{year} Qualifying")
+
+    def sprintquali_schedule(self, year: int) -> ScheduleList:
+        """
+        Get sprint qualifying (shootout) schedule for a season.
+
+        Args:
+            year: Season year
+
+        Returns:
+            ScheduleList with sprint qualifying events
+        """
+        schedule = self._get_event_schedule(year)
+        if schedule is None:
+            return ScheduleList([], f"{year} Sprint Qualifying")
+
+        items = []
+        for _, event in schedule.iterrows():
+            round_num = event.get('RoundNumber', 0)
+            if round_num == 0:
+                continue
+
+            # Find Sprint Qualifying/Shootout session
+            for i in range(1, 6):
+                session_name = event.get(f'Session{i}')
+                if session_name in ['Sprint Qualifying', 'Sprint Shootout']:
+                    item = self._build_schedule_item(event, i, round_num)
+                    if item:
+                        item['title'] = event.get('EventName', '')
+                        items.append(item)
+                    break
+
+        return ScheduleList(items, f"{year} Sprint Qualifying")
+
+    def practice_schedule(self, year: int) -> ScheduleList:
+        """
+        Get practice and testing session schedule for a season.
+
+        Args:
+            year: Season year
+
+        Returns:
+            ScheduleList with practice/testing events
+        """
+        schedule = self._get_event_schedule(year)
+        if schedule is None:
+            return ScheduleList([], f"{year} Practice Sessions")
+
+        items = []
+        practice_sessions = ['Practice 1', 'Practice 2', 'Practice 3', 'FP1', 'FP2', 'FP3']
+
+        for _, event in schedule.iterrows():
+            round_num = event.get('RoundNumber', 0)
+            event_name = event.get('EventName', '')
+
+            # Include testing events (round 0) and practice sessions
+            for i in range(1, 6):
+                session_name = event.get(f'Session{i}')
+                if session_name and (session_name in practice_sessions or
+                                    'Practice' in str(session_name) or
+                                    'Test' in str(session_name) or
+                                    round_num == 0):  # Testing events
+                    item = self._build_schedule_item(event, i, round_num if round_num else 0)
+                    if item:
+                        if round_num == 0:
+                            item['title'] = f"{event_name} - {session_name}"
+                        else:
+                            item['title'] = f"{event_name} - {session_name}"
+                        items.append(item)
+
+        return ScheduleList(items, f"{year} Practice & Testing")
 
     def _resolve_round_number(self, year: int, round_num_or_name: Union[int, str]) -> Optional[int]:
         """
