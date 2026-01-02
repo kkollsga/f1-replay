@@ -441,26 +441,10 @@
             gap: 4px;
         }
 
-        .driver-tire .tire-icon {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            border: 3px solid;
-            box-sizing: border-box;
-        }
-
         .driver-tire .tire-laps {
             color: #AAAAAA;
             min-width: 20px;
         }
-
-        /* Pirelli tire compound colors */
-        .tire-soft { border-color: #FF3333; }
-        .tire-medium { border-color: #FFD700; }
-        .tire-hard { border-color: #FFFFFF; }
-        .tire-intermediate { border-color: #43B02A; }
-        .tire-wet { border-color: #0066FF; }
-        .tire-unknown { border-color: #888888; }
 
         /* Messages Container */
         .messages-container {
@@ -1606,8 +1590,8 @@
                 this.currentZoom = 0.1;  // Zoom level in follow mode (0.1 = full map, no zoom)
 
                 // Standings display mode: 'time' or 'tire'
-                // Cycles between modes: 75% time, 25% tire
-                // Minimum display: 15s real time or 1/2 lap (whichever is longer)
+                // Fast mode (scrolling/5x+): 2 laps time, 0.5 lap tire
+                // Normal mode (2x or less): 90s time, 20s tire
                 this.standingsMode = 'time';
                 this.standingsModeLastSwitch = 0;  // Real timestamp of last mode switch
                 this.standingsModeLastLap = 0;     // Leader lap at last mode switch
@@ -1892,7 +1876,7 @@
                     console.log(`Loading race ${YEAR} round ${ROUND}...`);
 
                     // Fetch weekend and session data in parallel
-                    const telemetryFields = ['session_time', 'LapNumber', 'X', 'Y', 'Distance', 'progress', 'TimeToDriverAhead', 'status'];
+                    const telemetryFields = ['session_time', 'LapNumber', 'X', 'Y', 'Distance', 'progress', 'TimeToDriverAhead', 'status', 'Compound', 'TyreLife'];
                     const [weekendResp, sessionResp] = await Promise.all([
                         fetch(`/api/weekend/${YEAR}/${ROUND}`),
                         fetch(`/api/session/${YEAR}/${ROUND}/${SESSION_TYPE}?telemetry_fields=${telemetryFields.join(',')}`)
@@ -2684,48 +2668,48 @@
                 this.updateFastestLapDisplay();
             }
 
-            // Standings mode cycling: 75% time, 25% tire
-            // Minimum display: 15s real time or 1/2 lap (whichever is longer)
+            // Standings mode cycling between time and tire display
+            // Fast mode (scrolling or 5x+): lap-based cycling (2 laps time, 0.5 lap tire)
+            // Normal mode (2x or slower): time-based cycling (90s time, 20s tire)
             updateStandingsMode(positions) {
                 const now = Date.now();
                 const timeSinceSwitch = (now - this.standingsModeLastSwitch) / 1000;  // seconds
 
-                // Calculate current leader lap
+                // Calculate current leader lap (fractional)
                 let currentLap = 0;
                 if (positions.length > 0 && this.sessionData) {
                     const trackLength = this.sessionData.metadata.track_length;
-                    currentLap = Math.floor(positions[0].progress / trackLength);
+                    currentLap = positions[0].progress / trackLength;
                 }
                 const lapsSinceSwitch = currentLap - this.standingsModeLastLap;
 
-                // Minimum thresholds
-                const MIN_TIME_SECONDS = 15;
-                const MIN_LAPS = 0.5;
+                // Determine if we're in fast mode (scrolling or high speed playback)
+                const isFastMode = this.isDraggingKnob || this.playSpeed >= 5;
 
-                // Check if minimum display time has passed
-                const minTimePassed = timeSinceSwitch >= MIN_TIME_SECONDS;
-                const minLapsPassed = lapsSinceSwitch >= MIN_LAPS;
-                const canSwitch = minTimePassed && minLapsPassed;
-
-                if (!canSwitch) {
-                    return false;
-                }
-
-                // Cycle mode based on 75%/25% split
-                // Time mode: 3 cycles, Tire mode: 1 cycle
-                // After time mode min duration, switch to tire
-                // After tire mode min duration, switch back to time
                 let shouldSwitch = false;
 
-                if (this.standingsMode === 'time') {
-                    // Time has 75% weight, so show for 3x the minimum
-                    const timeDuration = MIN_TIME_SECONDS * 3;
-                    if (timeSinceSwitch >= timeDuration || lapsSinceSwitch >= MIN_LAPS * 3) {
-                        shouldSwitch = true;
+                if (isFastMode) {
+                    // Lap-based cycling: 2 laps time, 0.5 lap tire
+                    if (this.standingsMode === 'time') {
+                        if (lapsSinceSwitch >= 2 && timeSinceSwitch >= 1) {
+                            shouldSwitch = true;
+                        }
+                    } else {
+                        if (lapsSinceSwitch >= 0.5 && timeSinceSwitch >= 1) {
+                            shouldSwitch = true;
+                        }
                     }
                 } else {
-                    // Tire has 25% weight, show for 1x the minimum
-                    shouldSwitch = true;  // Already passed minimum, switch back to time
+                    // Time-based cycling: 90s time, 20s tire
+                    if (this.standingsMode === 'time') {
+                        if (timeSinceSwitch >= 90) {
+                            shouldSwitch = true;
+                        }
+                    } else {
+                        if (timeSinceSwitch >= 20) {
+                            shouldSwitch = true;
+                        }
+                    }
                 }
 
                 if (shouldSwitch) {
@@ -2784,6 +2768,27 @@
                 });
             }
 
+            // Generate tire SVG icon
+            tireIcon(color = '#888888', spokes = '#2D2D32', cap = '#141416', size = 14) {
+                const maskId = 'tireMask' + Math.random().toString(36).substr(2, 9);
+                return `<svg width="${size}" height="${size}" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                        <mask id="${maskId}">
+                            <circle cx="100" cy="100" r="90" fill="white"/>
+                            <circle cx="100" cy="100" r="55" fill="black"/>
+                        </mask>
+                    </defs>
+                    <rect x="90" y="45" width="20" height="55" fill="${spokes}"/>
+                    <rect x="90" y="45" width="20" height="55" fill="${spokes}" transform="rotate(72 100 100)"/>
+                    <rect x="90" y="45" width="20" height="55" fill="${spokes}" transform="rotate(144 100 100)"/>
+                    <rect x="90" y="45" width="20" height="55" fill="${spokes}" transform="rotate(216 100 100)"/>
+                    <rect x="90" y="45" width="20" height="55" fill="${spokes}" transform="rotate(288 100 100)"/>
+                    <circle cx="100" cy="100" r="90" fill="${color}" stroke="${spokes}" stroke-width="20" mask="url(#${maskId})"/>
+                    <circle cx="100" cy="100" r="55" fill="none" stroke="${spokes}" stroke-width="10"/>
+                    <circle cx="100" cy="100" r="20" fill="${cap}"/>
+                </svg>`;
+            }
+
             // Render tire info for a driver
             renderTireInfo(pos, isDNF) {
                 if (isDNF) {
@@ -2795,16 +2800,16 @@
                 const tyreLife = pos.tyreLife;
                 const displayLife = (tyreLife !== null && tyreLife !== undefined) ? Math.round(tyreLife) : '?';
 
-                // Map compound to CSS class
-                let tireClass = 'tire-unknown';
-                if (compound === 'SOFT') tireClass = 'tire-soft';
-                else if (compound === 'MEDIUM') tireClass = 'tire-medium';
-                else if (compound === 'HARD') tireClass = 'tire-hard';
-                else if (compound === 'INTERMEDIATE') tireClass = 'tire-intermediate';
-                else if (compound === 'WET') tireClass = 'tire-wet';
+                // Map compound to tire wall color
+                let tireColor = '#888888';
+                if (compound === 'SOFT') tireColor = '#FF3333';
+                else if (compound === 'MEDIUM') tireColor = '#FFD700';
+                else if (compound === 'HARD') tireColor = '#FFFFFF';
+                else if (compound === 'INTERMEDIATE') tireColor = '#43B02A';
+                else if (compound === 'WET') tireColor = '#0066FF';
 
                 return `<div class="driver-tire">
-                    <div class="tire-icon ${tireClass}"></div>
+                    ${this.tireIcon(tireColor)}
                     <span class="tire-laps">${displayLife}</span>
                 </div>`;
             }
