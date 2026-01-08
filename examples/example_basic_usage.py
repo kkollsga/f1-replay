@@ -1,5 +1,5 @@
 """
-Basic Usage Example - F1_Race DataLoader
+Basic Usage Example - F1 Replay
 
 Demonstrates:
 1. Loading season catalog
@@ -8,45 +8,46 @@ Demonstrates:
 4. Accessing various data elements
 """
 
-from f1_replay.data_loader import DataLoader
+from f1_replay.managers import DataLoader
 
 
 def main():
     """Run basic usage example."""
     print("="*70)
-    print("F1_Race DataLoader - Basic Usage Example")
+    print("F1 Replay - Basic Usage Example")
     print("="*70)
 
     # Initialize loader
     print("\n1. Initializing DataLoader...")
     loader = DataLoader(cache_dir="race_data")
 
-    # TIER 1: Load seasons
+    # TIER 1: Load seasons - returns Dict[int, List[EventInfo]]
     print("\n2. Loading F1 seasons catalog...")
     seasons = loader.load_seasons(years=[2024])
 
-    print(f"\n   Available years: {list(seasons.years.keys())}")
-    for year in seasons.years:
-        f1_year = seasons.years[year]
-        print(f"\n   {year} - {f1_year.total_rounds} races:")
-        for round_info in f1_year.rounds[:5]:  # First 5 races
-            print(f"     R{round_info.round_number:02d}: {round_info.event_name} ({round_info.location})")
-        if f1_year.total_rounds > 5:
-            print(f"     ... and {f1_year.total_rounds - 5} more")
+    print(f"\n   Available years: {list(seasons.keys())}")
+    for year, events in seasons.items():
+        print(f"\n   {year} - {len(events)} events:")
+        for event in events[:5]:  # First 5 events
+            print(f"     R{event.round_number:02d}: {event.name} ({event.location})")
+        if len(events) > 5:
+            print(f"     ... and {len(events) - 5} more")
 
     # TIER 2: Load race weekend (2024 Monaco - Round 8)
     print("\n3. Loading race weekend data (2024 Monaco)...")
     try:
-        weekend = loader.load_weekend(2024, 8)
+        # Get event info first
+        event = loader.get_event(2024, 8)
+        weekend = loader.load_weekend(2024, 8, event)
 
         if weekend:
-            metadata = weekend.metadata
+            event_info = weekend.event
             circuit = weekend.circuit
 
-            print(f"\n   Event: {metadata.event_name}")
-            print(f"   Location: {metadata.location}, {metadata.country}")
-            print(f"   Date: {metadata.event_date}")
-            print(f"   Timezone: {metadata.timezone}")
+            print(f"\n   Event: {event_info.name}")
+            print(f"   Location: {event_info.location}, {event_info.country}")
+            print(f"   Date: {event_info.end_date}")
+            print(f"   Timezone: {event_info.timezone}")
 
             print(f"\n   Circuit:")
             print(f"     Track length: {circuit.circuit_length:.0f}m")
@@ -67,9 +68,10 @@ def main():
     # TIER 3: Load race session
     print("\n4. Loading race session data (Race)...")
     try:
-        race = loader.load_session(2024, 8, "Race")
+        result = loader.load_session(2024, 8, "Race", event=event, circuit_length=circuit.circuit_length)
 
-        if race:
+        if result:
+            race = result.data
             metadata = race.metadata
 
             print(f"\n   Session: {metadata.session_type}")

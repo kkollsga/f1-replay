@@ -80,24 +80,29 @@ def serialize_telemetry(telemetry_dict: Dict[str, pl.DataFrame],
 
     Args:
         telemetry_dict: Dict mapping driver code to telemetry DataFrame
-        fields: Specific fields to include. If None, uses default essential fields:
-               ['session_time', 'LapNumber', 'X', 'Y', 'Distance', 'progress', 'TimeToDriverAhead']
+        fields: Specific fields to include. If None, uses default essential fields.
 
     Returns:
         {driver_code: {field: [values]}}
-        e.g., {'VER': {'session_time': [0.0, 0.076, ...], 'LapNumber': [1, 1, ...]}}
+        e.g., {'VER': {'session_time': [0.0, 0.076, ...], 'lap_number': [1, 1, ...]}}
     """
     if fields is None:
-        fields = ['session_time', 'LapNumber', 'X', 'Y', 'Distance', 'progress', 'TimeToDriverAhead', 'status', 'Compound', 'TyreLife']
+        # Default fields for race visualization (snake_case)
+        fields = [
+            'session_time', 'lap_number', 'x', 'y',
+            'track_distance', 'race_distance', 'position', 'interval',
+            'race_status', 'compound', 'tyre_life', 'speed'
+        ]
 
     # Fields that should be rounded to reduce JSON size
     ROUND_PRECISION = {
         'session_time': 2,  # 0.01s precision
-        'X': 1,             # 0.1m precision
-        'Y': 1,             # 0.1m precision
-        'Distance': 1,      # 0.1m precision
-        'progress': 4,      # 0.0001 precision (fraction of lap)
-        'TimeToDriverAhead': 3,  # 0.001s precision
+        'x': 1,             # 0.1 decimeter precision
+        'y': 1,             # 0.1 decimeter precision
+        'track_distance': 1,  # 0.1m precision
+        'race_distance': 1,   # 0.1m precision
+        'interval': 3,        # 0.001s precision
+        'speed': 1,           # 0.1 km/h precision
     }
 
     result = {}
@@ -132,19 +137,29 @@ def serialize_telemetry(telemetry_dict: Dict[str, pl.DataFrame],
 
 def serialize_track_geometry(track) -> Dict[str, Any]:
     """
-    Serialize track geometry to JSON-safe dict.
+    Serialize track/pit lane geometry to JSON-safe dict.
 
     Args:
-        track: TrackGeometry object with x, y, distance (optional), lap_distance
+        track: TrackGeometry (with lap_distance) or PitLane (with length)
 
     Returns:
         {x: [], y: [], distance: [] (optional), lap_distance: float}
     """
+    if track is None:
+        return None
+
     result = {
-        'x': track.x.tolist() if isinstance(track.x, np.ndarray) else track.x,
-        'y': track.y.tolist() if isinstance(track.y, np.ndarray) else track.y,
-        'lap_distance': float(track.lap_distance)
+        'x': track.x.tolist() if isinstance(track.x, np.ndarray) else (track.x if track.x is not None else []),
+        'y': track.y.tolist() if isinstance(track.y, np.ndarray) else (track.y if track.y is not None else []),
     }
+
+    # Handle both TrackGeometry (lap_distance) and PitLane (length)
+    if hasattr(track, 'lap_distance'):
+        result['lap_distance'] = float(track.lap_distance) if track.lap_distance else 0.0
+    elif hasattr(track, 'length'):
+        result['lap_distance'] = float(track.length) if track.length else 0.0
+    else:
+        result['lap_distance'] = 0.0
 
     if track.distance is not None:
         result['distance'] = (

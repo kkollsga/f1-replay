@@ -36,8 +36,8 @@ def fast_jsonify(data: dict, status: int = 200) -> Response:
     else:
         return jsonify(data), status
 
-from f1_replay.data_loader import DataLoader
-from f1_replay.session import Session
+from f1_replay.managers import DataLoader
+from f1_replay.wrappers import RaceWeekend, Session, create_session
 from f1_replay.api.serializers import (
     to_json_safe,
     serialize_telemetry,
@@ -158,7 +158,18 @@ def create_app(data_loader: DataLoader, current_session: Optional[Session] = Non
 
     # In-memory cache for loaded sessions (avoids repeated pickle loading)
     app.config['SESSION_CACHE'] = {}  # key: (year, round, session_type) -> Session
-    app.config['WEEKEND_CACHE'] = {}  # key: (year, round) -> (F1Weekend, RaceWeekend)
+    app.config['WEEKEND_CACHE'] = {}  # key: (year, round) -> F1Weekend
+
+    # Pre-cache data from current session (from Manager.race())
+    if current_session is not None:
+        # Cache the session
+        session_key = (current_session.year, current_session.round_number, current_session.session_type)
+        app.config['SESSION_CACHE'][session_key] = current_session
+
+        # Cache the weekend data from the session's RaceWeekend wrapper
+        if hasattr(current_session, 'weekend') and current_session.weekend is not None:
+            weekend_key = (current_session.year, current_session.round_number)
+            app.config['WEEKEND_CACHE'][weekend_key] = current_session.weekend._data
 
     # Enable CORS for development (if available)
     if HAS_CORS:
@@ -189,29 +200,28 @@ def create_app(data_loader: DataLoader, current_session: Optional[Session] = Non
             if seasons is None:
                 return jsonify({'error': 'Could not load seasons'}), 500
 
-            # Build response
+            # Build response - seasons is Dict[int, List[EventInfo]]
             seasons_dict = {}
-            for year, f1_year in seasons.years.items():
+            for year, events in seasons.items():
                 rounds = []
-                for round_info in f1_year.rounds:
+                for event in events:
                     rounds.append({
-                        'round': round_info.round_number,
-                        'event_name': round_info.event_name,
-                        'location': round_info.location,
-                        'country': round_info.country,
-                        'circuit_name': round_info.circuit_name,
-                        'date': round_info.date,
-                        'available_sessions': round_info.available_sessions
+                        'round': event.round_number,
+                        'event_name': event.name,
+                        'location': event.location,
+                        'country': event.country,
+                        'circuit_name': event.circuit_name,
+                        'date': event.end_date,
+                        'available_sessions': event.available_sessions
                     })
 
                 seasons_dict[str(year)] = {
-                    'total_rounds': f1_year.total_rounds,
+                    'total_rounds': len(events),
                     'rounds': rounds
                 }
 
             return jsonify({
-                'seasons': seasons_dict,
-                'last_updated': seasons.last_updated
+                'seasons': seasons_dict
             }), 200
 
         except Exception as e:
@@ -246,37 +256,43 @@ def create_app(data_loader: DataLoader, current_session: Optional[Session] = Non
             if cache_key in app.config['WEEKEND_CACHE']:
                 weekend_data = app.config['WEEKEND_CACHE'][cache_key]
             else:
-                weekend_data = data_loader.load_weekend(year, round_num, force_reprocess=app.config.get('FORCE_UPDATE', False))
+                # Get event info first
+                event = data_loader.get_event(year, round_num)
+                if event is None:
+                    return jsonify({'error': f'Round {year}/{round_num} not found in seasons'}), 404
+
+                weekend_data = data_loader.load_weekend(year, round_num, event, force_reprocess=app.config.get('FORCE_UPDATE', False))
                 if weekend_data is None:
                     return jsonify({'error': f'Weekend {year}/{round_num} not found'}), 404
                 # Cache for future requests
                 app.config['WEEKEND_CACHE'][cache_key] = weekend_data
 
-            metadata = weekend_data.metadata
+            # Use event property (EventInfo) for metadata
+            event_info = weekend_data.event
 
             # Build response
+            # Safely serialize track geometry (may be None for future races)
+            track_geom = weekend_data.circuit.track if weekend_data.circuit else None
+            pit_lane_geom = weekend_data.circuit.pit_lane if weekend_data.circuit else None
+
             return fast_jsonify({
                 'metadata': {
-                    'year': metadata.year,
-                    'round': metadata.round_number,
-                    'event_name': metadata.event_name,
-                    'location': metadata.location,
-                    'country': metadata.country,
-                    'circuit_name': metadata.circuit_name,
-                    'timezone': metadata.timezone,
-                    'event_date': metadata.event_date,
-                    'available_sessions': metadata.available_sessions
+                    'year': event_info.year,
+                    'round': event_info.round_number,
+                    'event_name': event_info.name,
+                    'location': event_info.location,
+                    'country': event_info.country,
+                    'circuit_name': event_info.circuit_name,
+                    'timezone': event_info.timezone,
+                    'event_date': event_info.end_date,
+                    'available_sessions': event_info.available_sessions
                 },
                 'circuit': {
-                    'track': serialize_track_geometry(weekend_data.circuit.track),
-                    'pit_lane': (
-                        serialize_track_geometry(weekend_data.circuit.pit_lane)
-                        if weekend_data.circuit.pit_lane is not None
-                        else None
-                    ),
-                    'circuit_length': weekend_data.circuit.circuit_length,
-                    'rotation': weekend_data.circuit.rotation,  # In degrees (from FastF1)
-                    'corners': weekend_data.circuit.corners,
+                    'track': serialize_track_geometry(track_geom) if track_geom and track_geom.x is not None else None,
+                    'pit_lane': serialize_track_geometry(pit_lane_geom) if pit_lane_geom else None,
+                    'circuit_length': weekend_data.circuit.circuit_length if weekend_data.circuit else 0,
+                    'rotation': weekend_data.circuit.rotation if weekend_data.circuit else 0,
+                    'corners': weekend_data.circuit.corners if weekend_data.circuit else 0,
                     'track_segments': [
                         {
                             'name': seg.name,
@@ -285,12 +301,14 @@ def create_app(data_loader: DataLoader, current_session: Optional[Session] = Non
                             'segment_type': seg.segment_type,
                             'metadata': seg.metadata
                         }
-                        for seg in weekend_data.circuit.track_segments
+                        for seg in (weekend_data.circuit.track_segments if weekend_data.circuit else [])
                     ]
                 }
             })
 
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             return jsonify({'error': str(e)}), 500
 
     @app.route('/api/session/<int:year>/<int:round_num>/<session_type>', methods=['GET'])
@@ -331,23 +349,33 @@ def create_app(data_loader: DataLoader, current_session: Optional[Session] = Non
                 session = app.config['SESSION_CACHE'][cache_key]
             else:
                 # Load from data loader
-                from f1_replay.race_weekend import RaceWeekend
                 force_reprocess = app.config.get('FORCE_UPDATE', False)
-                weekend_data = data_loader.load_weekend(year, round_num, force_reprocess=force_reprocess)
+
+                # Get event info from seasons catalog
+                event = data_loader.get_event(year, round_num)
+                if event is None:
+                    return jsonify({'error': f'Round {year}/{round_num} not found'}), 404
+
+                weekend_data = data_loader.load_weekend(year, round_num, event, force_reprocess=force_reprocess)
                 if weekend_data is None:
                     return jsonify({'error': f'Weekend {year}/{round_num} not found'}), 404
 
-                weekend = RaceWeekend(weekend_data)
+                weekend = RaceWeekend(data=weekend_data)
 
-                session_data = data_loader.load_session(year, round_num, session_type, force_reprocess=force_reprocess)
-                if session_data is None:
+                result = data_loader.load_session(
+                    year, round_num, session_type,
+                    event=event,
+                    circuit_length=weekend.circuit_length,
+                    force_reprocess=force_reprocess
+                )
+                if result is None:
                     # Check if this is a future race - return scheduled date
                     scheduled_info = _get_scheduled_session_info(data_loader, year, round_num, session_type)
                     if scheduled_info:
                         return jsonify(scheduled_info), 200
                     return jsonify({'error': f'Session {year}/{round_num}/{session_type} not found'}), 404
 
-                session = Session(session_data, weekend)
+                session = create_session(data=result.data, weekend=weekend, raw_session=result.raw_session)
                 # Cache for future requests
                 app.config['SESSION_CACHE'][cache_key] = session
 
@@ -356,7 +384,11 @@ def create_app(data_loader: DataLoader, current_session: Optional[Session] = Non
             if 'telemetry_fields' in request.args:
                 telemetry_fields = request.args.get('telemetry_fields').split(',')
 
-            metadata = session._data.metadata
+            # Get attributes that only exist on certain session types
+            dnf_drivers = getattr(session, 'dnf_drivers', [])
+            fastest_laps = getattr(session, 'fastest_laps', [])
+            position_history = getattr(session, 'position_history', [])
+            order = getattr(session, 'order', None)
 
             # Build response
             return fast_jsonify({
@@ -367,23 +399,33 @@ def create_app(data_loader: DataLoader, current_session: Optional[Session] = Non
                     'event_name': session.event_name,
                     'drivers': session.drivers,
                     'driver_info': session.driver_info,
-                    'dnf_drivers': metadata.dnf_drivers,
+                    'dnf_drivers': dnf_drivers,
                     'track_length': session.track_length,
                     'total_laps': session.total_laps,
-                    't0_date_utc': session.t0_date_utc,
+                    't0': {
+                        'utc': session.t0_utc,
+                        'timezone': session.t0_timezone,
+                        'lights_out_offset': session.lights_out_offset,
+                    } if session.t0_utc else None,
                     'start_time_local': session.start_time_local
                 },
                 'telemetry': serialize_telemetry(session.telemetry, fields=telemetry_fields),
-                'events': serialize_events(session._data.events),
-                'results': {
-                    'fastest_laps': serialize_fastest_laps(session.fastest_laps),
-                    'position_history': serialize_position_history(session.position_history)
+                'events': {
+                    'track_status': to_json_safe(session.track_status),
+                    'race_control': to_json_safe(session.race_control),
+                    'weather': to_json_safe(session.weather),
                 },
-                'order': to_json_safe(session.order),
+                'results': {
+                    'fastest_laps': serialize_fastest_laps(fastest_laps),
+                    'position_history': serialize_position_history(position_history)
+                },
+                'order': to_json_safe(order) if order is not None else [],
                 'rain_events': serialize_rain_events(session.rain_events)
             })
 
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             return jsonify({'error': str(e)}), 500
 
     # =========================================================================

@@ -1,111 +1,52 @@
 """
-f1-replay Data Models
+Session data models.
 
-Immutable dataclasses for representing F1 data at different levels:
-- TIER 1: F1Seasons (season catalog)
-- TIER 2: F1Weekend (race weekend with circuit info)
-- TIER 3: SessionData (complete session data)
+TIER 3: SessionData with telemetry, events, and results.
 """
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any
-import numpy as np
 import polars as pl
 
-# ============================================================================
-# TIER 1: Season Catalog (F1Seasons)
-# ============================================================================
-
-@dataclass(frozen=True)
-class RoundInfo:
-    """Basic info about a single race weekend."""
-    round_number: int
-    event_name: str  # "Bahrain Grand Prix"
-    location: str    # "Sakhir"
-    country: str     # "Bahrain"
-    circuit_name: str  # "Bahrain International Circuit"
-    date: str        # "2024-03-02"
-    available_sessions: List[str]  # ["FP1", "FP2", "FP3", "Q", "R"]
+from f1_replay.models.base import F1DataMixin
 
 
 @dataclass(frozen=True)
-class F1Year:
-    """Data for a single F1 season."""
-    year: int
-    total_rounds: int
-    rounds: List[RoundInfo]
+class T0Info(F1DataMixin):
+    """
+    Time reference for session normalization.
+
+    t0.utc is FastF1's timing zero (t0_date) - the point where session_time=0.
+    This matches FastF1's SessionTime column directly (converted to seconds).
+
+    Example:
+        t0.utc = '2025-04-13T14:08:14'  # Timing zero (session_time=0)
+        t0.warmup_start_offset = 3200.0 # Formation lap starts at session_time=3200s
+        t0.lights_out_offset = 3335.0   # Lights out at session_time=3335s
+        t0.session_duration = 7200.0    # 2 hours of telemetry
+
+        # Convert session_time to race_time (relative to lights out):
+        race_time = session_time - lights_out_offset
+        # At session_time=0: race_time = -3335 (55min before lights out)
+        # At session_time=3335: race_time = 0 (lights out!)
+    """
+    # Timing zero (t0_date) - when session_time=0 in FastF1's SessionTime
+    utc: str  # ISO format UTC timestamp
+
+    # Race timezone for local time display
+    timezone: str = ""  # IANA timezone (e.g., "Asia/Shanghai", "Europe/Monaco")
+    utc_offset_hours: float = 0.0  # Numeric offset (e.g., +8.0, -5.0)
+
+    # Session timing offsets (seconds from t0)
+    warmup_start_offset: Optional[float] = None  # When formation lap starts
+    lights_out_offset: float = 0.0  # When lights go out (race starts)
+
+    # Total telemetry duration in seconds (from first to last data point)
+    session_duration: float = 0.0
 
 
 @dataclass(frozen=True)
-class F1Seasons:
-    """Complete immutable catalog of all F1 seasons."""
-    years: Dict[int, F1Year]
-    last_updated: str  # ISO timestamp
-
-
-# ============================================================================
-# TIER 2: Race Weekend (F1Weekend)
-# ============================================================================
-
-@dataclass(frozen=True)
-class TrackSegment:
-    """A segment of track (marshal sector, DRS zone, etc.)."""
-    name: str  # "Sector 1", "DRS Zone 1"
-    start_distance: float  # meters
-    end_distance: float    # meters
-    segment_type: str  # "sector", "drs_zone"
-    metadata: Dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class TrackGeometry:
-    """Track or pit lane coordinates."""
-    x: np.ndarray  # float32 array of X coordinates
-    y: np.ndarray  # float32 array of Y coordinates
-    distance: Optional[np.ndarray] = None  # float32 cumulative distance
-    lap_distance: float = 0.0  # Total distance (meters)
-
-
-@dataclass(frozen=True)
-class CircuitData:
-    """Complete circuit information."""
-    track: TrackGeometry  # Track outline
-    pit_lane: Optional[TrackGeometry] = None  # Pit lane outline
-    track_segments: List[TrackSegment] = field(default_factory=list)  # Marshal sectors
-    circuit_length: float = 0.0  # Total track length (meters)
-    corners: int = 0  # Number of corners
-    rotation: float = 0.0  # Track rotation in degrees (from FastF1)
-    metadata: Dict[str, Any] = field(default_factory=dict)  # DRS zones, etc.
-
-
-@dataclass(frozen=True)
-class WeekendMetadata:
-    """Race weekend metadata."""
-    year: int
-    round_number: int
-    event_name: str  # "Abu Dhabi Grand Prix"
-    location: str    # "Yas Island"
-    country: str     # "United Arab Emirates"
-    circuit_name: str  # "Yas Marina Circuit"
-    timezone: str    # "UTC+4"
-    event_date: str  # ISO date "2024-12-08"
-    session_schedule: Dict[str, str] = field(default_factory=dict)  # Session times
-    available_sessions: List[str] = field(default_factory=list)  # ["FP1", ..., "R"]
-
-
-@dataclass(frozen=True)
-class F1Weekend:
-    """Complete immutable race weekend: metadata + circuit geometry."""
-    metadata: WeekendMetadata
-    circuit: CircuitData
-
-
-# ============================================================================
-# TIER 3: Session Data (SessionData)
-# ============================================================================
-
-@dataclass(frozen=True)
-class SessionMetadata:
+class SessionMetadata(F1DataMixin):
     """Session-specific metadata."""
     session_type: str  # "R", "Q", "FP1", "FP2", "FP3", "S"
     year: int
@@ -120,12 +61,12 @@ class SessionMetadata:
     track_length: float  # From circuit
     total_laps: int  # Laps in this session
     dnf_drivers: List[str] = field(default_factory=list)  # Drivers who DNF'd (status="Retired")
-    t0_date_utc: Optional[str] = None  # Session start time UTC
+    t0: Optional[T0Info] = None  # Time reference for normalization (single source of truth)
     start_time_local: Optional[str] = None  # "17:00:00"
 
 
 @dataclass(frozen=True)
-class TrackStatusEvent:
+class TrackStatusEvent(F1DataMixin):
     """
     Track status/flag event (unified from track_status + race_control_messages).
 
@@ -140,10 +81,11 @@ class TrackStatusEvent:
     sector: int = 0  # Sector number for sector flags
     driver_num: str = ""  # Driver number for blue flags
     lap: int = 0  # Lap number when flag was shown
+    raw_time: Optional[str] = None  # Original time from FastF1 (ISO format or timedelta string)
 
 
 @dataclass(frozen=True)
-class RaceControlMessage:
+class RaceControlMessage(F1DataMixin):
     """Race control message."""
     message: str
     time: float = 0.0  # Original time value from FastF1
@@ -151,7 +93,7 @@ class RaceControlMessage:
 
 
 @dataclass(frozen=True)
-class WeatherSample:
+class WeatherSample(F1DataMixin):
     """Weather sample at a point in time."""
     temperature: float  # °C
     humidity: float  # 0-100
@@ -164,7 +106,7 @@ class WeatherSample:
 
 
 @dataclass(frozen=True)
-class EventsData:
+class EventsData(F1DataMixin):
     """All events during session (stored as Polars DataFrames for efficiency)."""
     # Unified track status: merges session.track_status + race_control_messages[Category='Flag']
     # Columns: session_time, status, message, flag_type, scope, sector, driver_num, lap
@@ -174,7 +116,7 @@ class EventsData:
 
 
 @dataclass(frozen=True)
-class FastestLapEvent:
+class FastestLapEvent(F1DataMixin):
     """Fastest lap record."""
     lap: int
     driver: str
@@ -184,7 +126,7 @@ class FastestLapEvent:
 
 
 @dataclass(frozen=True)
-class PositionEntry:
+class PositionEntry(F1DataMixin):
     """Driver position in standings."""
     position: int
     driver: str
@@ -192,7 +134,7 @@ class PositionEntry:
 
 
 @dataclass(frozen=True)
-class PositionSnapshot:
+class PositionSnapshot(F1DataMixin):
     """Standings at a moment in time."""
     time: float  # Session seconds
     lap: Optional[int] = None
@@ -200,20 +142,19 @@ class PositionSnapshot:
 
 
 @dataclass(frozen=True)
-class ResultsData:
+class ResultsData(F1DataMixin):
     """Race results and standings."""
     fastest_laps: List[FastestLapEvent] = field(default_factory=list)
     position_history: List[PositionSnapshot] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
-class SessionData:
+class SessionData(F1DataMixin):
     """Complete immutable data for one session."""
     metadata: SessionMetadata
-    telemetry: Dict[str, pl.DataFrame] = field(default_factory=dict)  # driver_code -> telemetry
+    telemetry: Dict[str, pl.DataFrame] = field(default_factory=dict)  # driver_code -> telemetry (includes position column)
     events: EventsData = field(default_factory=EventsData)
     results: ResultsData = field(default_factory=ResultsData)
-    order: pl.DataFrame = field(default_factory=lambda: pl.DataFrame())  # Columns: session_time, position, driver (only rows where order changed)
     rain_events: pl.DataFrame = field(default_factory=lambda: pl.DataFrame())  # Columns: start_time, end_time, duration
 
     # Convenience properties for easier access to results
@@ -226,3 +167,8 @@ class SessionData:
     def position_history(self) -> List[PositionSnapshot]:
         """Get position snapshots (standings at moments in time)."""
         return self.results.position_history
+
+    @property
+    def t0(self) -> Optional[T0Info]:
+        """Get time reference info for session normalization."""
+        return self.metadata.t0

@@ -1590,8 +1590,9 @@
                 this.currentZoom = 0.1;  // Zoom level in follow mode (0.1 = full map, no zoom)
 
                 // Standings display mode: 'time' or 'tire'
-                // Fast mode (scrolling/5x+): 2 laps time, 0.5 lap tire
-                // Normal mode (2x or less): 90s time, 20s tire
+                // Scrolling: deterministic by lap position (2 laps time, 0.5 lap tire cycle)
+                // Fast playback (5x+): lap-based cycling
+                // Normal playback: time-based (90s time, 20s tire)
                 this.standingsMode = 'time';
                 this.standingsModeLastSwitch = 0;  // Real timestamp of last mode switch
                 this.standingsModeLastLap = 0;     // Leader lap at last mode switch
@@ -1876,7 +1877,7 @@
                     console.log(`Loading race ${YEAR} round ${ROUND}...`);
 
                     // Fetch weekend and session data in parallel
-                    const telemetryFields = ['session_time', 'LapNumber', 'X', 'Y', 'Distance', 'progress', 'TimeToDriverAhead', 'status', 'Compound', 'TyreLife'];
+                    const telemetryFields = ['session_time', 'lap_number', 'x', 'y', 'track_distance', 'race_distance', 'position', 'interval', 'race_status', 'compound', 'tyre_life', 'speed'];
                     const [weekendResp, sessionResp] = await Promise.all([
                         fetch(`/api/weekend/${YEAR}/${ROUND}`),
                         fetch(`/api/session/${YEAR}/${ROUND}/${SESSION_TYPE}?telemetry_fields=${telemetryFields.join(',')}`)
@@ -2456,7 +2457,7 @@
                     // Get cached index or use binary search
                     let idx1 = this.binarySearchTelemetryIndex(tel.session_time, this.currentTime);
 
-                    if (idx1 >= 0 && idx1 < tel.X.length) {
+                    if (idx1 >= 0 && idx1 < tel.x.length) {
                         // Get interpolated position between two samples
                         const interpolated = this.interpolateDriverPosition(tel, idx1);
 
@@ -2466,9 +2467,10 @@
                             x: interpolated.x,
                             y: interpolated.y,
                             progress: interpolated.progress,
-                            timeToDriverAhead: interpolated.timeToDriverAhead,
+                            interval: interpolated.interval,
                             compound: interpolated.compound,
                             tyreLife: interpolated.tyreLife,
+                            status: interpolated.status,
                             color: driver.color
                         });
                     }
@@ -2503,19 +2505,21 @@
                 const time1 = telemetry.session_time[idx1];
                 const idx2 = idx1 + 1;
 
-                // Get tire info (no interpolation needed - use current value)
-                const compound = telemetry.Compound ? telemetry.Compound[idx1] : null;
-                const tyreLife = telemetry.TyreLife ? telemetry.TyreLife[idx1] : null;
+                // Get tire info and status (no interpolation needed - use current value)
+                const compound = telemetry.compound ? telemetry.compound[idx1] : null;
+                const tyreLife = telemetry.tyre_life ? telemetry.tyre_life[idx1] : null;
+                const status = telemetry.race_status ? telemetry.race_status[idx1] : null;
 
                 // If we're at the last sample or beyond current time, return without interpolation
                 if (idx2 >= telemetry.session_time.length) {
                     return {
-                        x: telemetry.X[idx1],
-                        y: telemetry.Y[idx1],
-                        progress: telemetry.progress ? telemetry.progress[idx1] : 0,
-                        timeToDriverAhead: telemetry.TimeToDriverAhead ? telemetry.TimeToDriverAhead[idx1] : null,
+                        x: telemetry.x[idx1],
+                        y: telemetry.y[idx1],
+                        progress: telemetry.race_distance ? telemetry.race_distance[idx1] : 0,
+                        interval: telemetry.interval ? telemetry.interval[idx1] : null,
                         compound,
-                        tyreLife
+                        tyreLife,
+                        status
                     };
                 }
 
@@ -2525,12 +2529,13 @@
                 // If samples are at same time, return first sample
                 if (timeDelta === 0) {
                     return {
-                        x: telemetry.X[idx1],
-                        y: telemetry.Y[idx1],
-                        progress: telemetry.progress ? telemetry.progress[idx1] : 0,
-                        timeToDriverAhead: telemetry.TimeToDriverAhead ? telemetry.TimeToDriverAhead[idx1] : null,
+                        x: telemetry.x[idx1],
+                        y: telemetry.y[idx1],
+                        progress: telemetry.race_distance ? telemetry.race_distance[idx1] : 0,
+                        interval: telemetry.interval ? telemetry.interval[idx1] : null,
                         compound,
-                        tyreLife
+                        tyreLife,
+                        status
                     };
                 }
 
@@ -2538,20 +2543,20 @@
                 const t = (this.currentTime - time1) / timeDelta;
                 const factor = Math.max(0, Math.min(1, t)); // Clamp to [0, 1]
 
-                // Linear interpolation for X, Y
-                const x = telemetry.X[idx1] + (telemetry.X[idx2] - telemetry.X[idx1]) * factor;
-                const y = telemetry.Y[idx1] + (telemetry.Y[idx2] - telemetry.Y[idx1]) * factor;
+                // Linear interpolation for x, y
+                const x = telemetry.x[idx1] + (telemetry.x[idx2] - telemetry.x[idx1]) * factor;
+                const y = telemetry.y[idx1] + (telemetry.y[idx2] - telemetry.y[idx1]) * factor;
 
-                // Interpolate progress if available
-                let progress = telemetry.progress ? telemetry.progress[idx1] : 0;
-                if (telemetry.progress && idx2 < telemetry.progress.length) {
-                    progress = telemetry.progress[idx1] + (telemetry.progress[idx2] - telemetry.progress[idx1]) * factor;
+                // Interpolate race_distance (progress) if available
+                let progress = telemetry.race_distance ? telemetry.race_distance[idx1] : 0;
+                if (telemetry.race_distance && idx2 < telemetry.race_distance.length) {
+                    progress = telemetry.race_distance[idx1] + (telemetry.race_distance[idx2] - telemetry.race_distance[idx1]) * factor;
                 }
 
-                // Use nearest TimeToDriverAhead value (don't interpolate)
-                let timeToDriverAhead = telemetry.TimeToDriverAhead ? telemetry.TimeToDriverAhead[idx1] : null;
+                // Use nearest interval value (don't interpolate)
+                let interval = telemetry.interval ? telemetry.interval[idx1] : null;
 
-                return { x, y, progress, timeToDriverAhead, compound, tyreLife };
+                return { x, y, progress, interval, compound, tyreLife, status };
             }
 
             updateStandings() {
@@ -2644,8 +2649,8 @@
                             let maxLap = 1;
                             for (const driver in this.sessionData.telemetry) {
                                 const tel = this.sessionData.telemetry[driver];
-                                if (tel.LapNumber && tel.LapNumber.length > 0) {
-                                    const driverMaxLap = Math.max(...tel.LapNumber);
+                                if (tel.lap_number && tel.lap_number.length > 0) {
+                                    const driverMaxLap = Math.max(...tel.lap_number);
                                     maxLap = Math.max(maxLap, driverMaxLap);
                                 }
                             }
@@ -2669,11 +2674,12 @@
             }
 
             // Standings mode cycling between time and tire display
-            // Fast mode (scrolling or 5x+): lap-based cycling (2 laps time, 0.5 lap tire)
-            // Normal mode (2x or slower): time-based cycling (90s time, 20s tire)
+            // Scrolling: deterministic based on lap position (2 laps time, 0.5 lap tire per cycle)
+            // Fast playback (5x+): lap-based cycling
+            // Normal playback (2x or slower): time-based cycling (90s time, 20s tire)
             updateStandingsMode(positions) {
                 const now = Date.now();
-                const timeSinceSwitch = (now - this.standingsModeLastSwitch) / 1000;  // seconds
+                const timeSinceSwitch = (now - this.standingsModeLastSwitch) / 1000;
 
                 // Calculate current leader lap (fractional)
                 let currentLap = 0;
@@ -2681,15 +2687,28 @@
                     const trackLength = this.sessionData.metadata.track_length;
                     currentLap = positions[0].progress / trackLength;
                 }
+
+                // When scrolling, mode is deterministic based on lap position
+                if (this.isDraggingKnob) {
+                    // Cycle: 2 laps time, 0.5 lap tire (2.5 lap total cycle)
+                    const cycleLength = 2.5;
+                    const positionInCycle = currentLap % cycleLength;
+                    const newMode = positionInCycle < 2 ? 'time' : 'tire';
+
+                    if (newMode !== this.standingsMode) {
+                        this.standingsMode = newMode;
+                        this.standingsModeLastSwitch = now;
+                        this.standingsModeLastLap = currentLap;
+                        return true;
+                    }
+                    return false;
+                }
+
                 const lapsSinceSwitch = currentLap - this.standingsModeLastLap;
-
-                // Determine if we're in fast mode (scrolling or high speed playback)
-                const isFastMode = this.isDraggingKnob || this.playSpeed >= 5;
-
                 let shouldSwitch = false;
 
-                if (isFastMode) {
-                    // Lap-based cycling: 2 laps time, 0.5 lap tire
+                if (this.playSpeed >= 5) {
+                    // Fast playback: lap-based cycling
                     if (this.standingsMode === 'time') {
                         if (lapsSinceSwitch >= 2 && timeSinceSwitch >= 1) {
                             shouldSwitch = true;
@@ -2700,7 +2719,7 @@
                         }
                     }
                 } else {
-                    // Time-based cycling: 90s time, 20s tire
+                    // Normal playback: time-based cycling (90s time, 20s tire)
                     if (this.standingsMode === 'time') {
                         if (timeSinceSwitch >= 90) {
                             shouldSwitch = true;
@@ -2724,18 +2743,38 @@
 
             // Render time/gap info for a driver
             renderTimeInfo(pos, idx, positions, isDNF) {
+                const inPit = pos.status === 'pit';
+
                 let gap;
                 if (isDNF) {
                     gap = 'DNF';
                 } else if (idx === 0) {
                     gap = 'LEADER';
-                } else if (pos.timeToDriverAhead !== null && pos.timeToDriverAhead !== undefined) {
-                    gap = '+' + pos.timeToDriverAhead.toFixed(2) + 's';
+                } else if (pos.interval !== null && pos.interval !== undefined) {
+                    gap = '+' + pos.interval.toFixed(2) + 's';
                 } else {
                     // Fallback to distance if time unavailable
                     gap = '+' + (positions[0].progress - pos.progress).toFixed(1) + 'm';
                 }
-                return `<div class="driver-interval">${gap}</div>`;
+
+                // Show tire icon if driver recently changed tires (TyreLife <= 2 laps)
+                let tireIndicator = '';
+                if (!isDNF && pos.tyreLife !== null && pos.tyreLife !== undefined && pos.tyreLife <= 2) {
+                    const compound = pos.compound ? pos.compound.toUpperCase() : null;
+                    let tireColor = '#888888';
+                    if (compound === 'SOFT') tireColor = '#FF3333';
+                    else if (compound === 'MEDIUM') tireColor = '#FFD700';
+                    else if (compound === 'HARD') tireColor = '#FFFFFF';
+                    else if (compound === 'INTERMEDIATE') tireColor = '#43B02A';
+                    else if (compound === 'WET') tireColor = '#0066FF';
+                    tireIndicator = `<span style="margin-right: 4px;">${this.tireIcon(tireColor, '#2D2D32', '#141416', 12)}</span>`;
+                }
+
+                // Brighter colors when in pit (white instead of grey, yellow instead of gold)
+                const textColor = inPit ? (idx === 0 ? '#FFFF00' : '#FFFFFF') : '';
+                const styleAttr = textColor ? ` style="color: ${textColor}"` : '';
+
+                return `<div class="driver-interval"${styleAttr}>${tireIndicator}${gap}</div>`;
             }
 
             // Update just the info column (time/tire) without full DOM rebuild
@@ -2795,6 +2834,8 @@
                     return `<div class="driver-tire"><span class="tire-laps">DNF</span></div>`;
                 }
 
+                const inPit = pos.status === 'pit';
+
                 // Get compound and tire life directly from position data
                 const compound = pos.compound ? pos.compound.toUpperCase() : null;
                 const tyreLife = pos.tyreLife;
@@ -2808,9 +2849,12 @@
                 else if (compound === 'INTERMEDIATE') tireColor = '#43B02A';
                 else if (compound === 'WET') tireColor = '#0066FF';
 
+                // Brighter text color when in pit
+                const textColor = inPit ? '#FFFFFF' : '#AAAAAA';
+
                 return `<div class="driver-tire">
                     ${this.tireIcon(tireColor)}
-                    <span class="tire-laps">${displayLife}</span>
+                    <span class="tire-laps" style="color: ${textColor}">${displayLife}</span>
                 </div>`;
             }
 
