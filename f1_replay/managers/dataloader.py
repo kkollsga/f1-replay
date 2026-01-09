@@ -197,7 +197,7 @@ class DataLoader:
     # =========================================================================
 
     def load_session(self, year: int, round_num: int, session_type: str,
-                    event: EventInfo, circuit_length: float,
+                    event: EventInfo, circuit_length: float, weekend_track=None,
                     force_reprocess: bool = False, force_update: bool = False) -> Optional[LoadResult]:
         """
         Load session data (TIER 3): telemetry, events, results.
@@ -212,6 +212,7 @@ class DataLoader:
                          or FastF1 codes ("R", "Q", "FP1", etc.)
             event: EventInfo from seasons catalog
             circuit_length: Circuit length in meters (from weekend)
+            weekend_track: Optional TrackGeometry from Weekend (for adding track_distance to telemetry)
             force_reprocess: Force rebuild from FastF1
             force_update: Alias for force_reprocess (for API consistency)
 
@@ -250,10 +251,11 @@ class DataLoader:
         # Build from FastF1
         print(f"\n📡 Building session data from FastF1...")
 
-        # Create processor with circuit length
+        # Create processor with circuit length and weekend track
         processor = SessionProcessor(
             self.fastf1_client,
-            circuit_length=circuit_length
+            circuit_length=circuit_length,
+            weekend_track=weekend_track
         )
 
         result = processor.build_session(year, round_num, fastf1_code, event.name)
@@ -261,6 +263,7 @@ class DataLoader:
         if result is None:
             return None
 
+        # Note: _track_data is None in new flow (track extracted during weekend build, not session)
         session, raw_session, _track_data = result
 
         # Cache (only SessionData, not raw_session)
@@ -320,6 +323,9 @@ class DataLoader:
                              rotation: Optional[float] = None) -> F1Weekend:
         """
         Update weekend's CircuitData with extracted track geometry.
+
+        LEGACY: Only used for backward compatibility when Weekend.pkl has placeholder track.
+        New flow builds complete track during WeekendProcessor.build_weekend().
 
         Args:
             weekend: Current F1Weekend

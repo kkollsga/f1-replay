@@ -6,7 +6,7 @@ and samples car data using nearest-neighbor matching.
 
 Output columns (all lowercase/snake_case):
     session_time, status, x, y, z, rpm, speed, n_gear, throttle, brake, drs,
-    lap_number, compound, tyre_life, race_status, track_distance, race_distance
+    lap_number, compound, tyre_life, track_distance, race_distance
 
 Also extracts track and pit lane geometry from race winner's telemetry.
 """
@@ -47,22 +47,22 @@ class TelemetryBuilder:
     """Build compacted telemetry from FastF1 pos_data and car_data."""
 
     @staticmethod
-    def build_telemetry(f1_session, dnf_drivers: set = None) -> Tuple[Dict[str, pl.DataFrame], Optional[TrackData], Optional[dict]]:
+    def build_telemetry(f1_session, dnf_drivers: set = None, extract_track: bool = False) -> Tuple[Dict[str, pl.DataFrame], Optional[TrackData], Optional[dict], Dict[str, dict]]:
         """
         Build telemetry for all drivers from pos_data and car_data.
-
-        Also extracts track and pit lane geometry from race winner's telemetry,
-        and detects session timing boundaries (warmup start).
 
         Args:
             f1_session: FastF1 session with loaded data
             dnf_drivers: Set of driver abbreviations who retired (from results)
+            extract_track: If True, extract track geometry (legacy mode for backward compatibility).
+                          If False (default), skip track extraction - track comes from Weekend.pkl.
 
         Returns:
             Tuple of:
             - Dict mapping driver code to Polars DataFrame
-            - TrackData with track and pit lane geometry (or None)
-            - Session timing dict with {warmup_start_time} (or None)
+            - TrackData with track and pit lane geometry (or None if extract_track=False)
+            - Session timing dict with {warmup_start_time} (or None if extract_track=False)
+            - status_data_all dict mapping driver -> {finish_time, pit_windows, is_dnf}
         """
         if dnf_drivers is None:
             dnf_drivers = set()
@@ -75,7 +75,7 @@ class TelemetryBuilder:
 
         if pos_data is None or car_data is None:
             print("  ⚠ pos_data or car_data not available")
-            return telemetry, None, None
+            return telemetry, None, None, status_data_all
 
         # Calculate race_length (max laps across all drivers)
         race_length = 0
@@ -115,17 +115,17 @@ class TelemetryBuilder:
                 print(f"    ⚠ {driver_code}: {e}")
 
         # Extract track and pit lane geometry, then add track_distance
+        # Only extract if explicitly requested (legacy mode for backward compatibility)
         track_data = None
         session_timing = None
-        if telemetry:
+        if extract_track and telemetry:
             track_data, session_timing = TelemetryBuilder._extract_track_and_pit(telemetry, winner, status_data_all)
             if track_data:
                 # Add track_distance, race_distance, lap_number (from wrap detection)
                 telemetry = TelemetryBuilder._add_track_distance_all(telemetry, track_data, session_timing)
-                # Add race_status using FINAL lap_number and status_data
-                telemetry = TelemetryBuilder._add_race_status_all(telemetry, status_data_all)
+                # Legacy mode: Status would be added here but is now handled by SessionProcessor
 
-        return telemetry, track_data, session_timing
+        return telemetry, track_data, session_timing, status_data_all
 
     @staticmethod
     def _get_race_winner(f1_session) -> Optional[str]:
@@ -182,7 +182,7 @@ class TelemetryBuilder:
 
         Returns:
             Tuple of:
-            - Polars DataFrame with telemetry columns (snake_case), no race_status yet
+            - Polars DataFrame with telemetry columns (snake_case), status will be updated later
             - status_data dict with {finish_time, pit_windows, is_dnf} for deferred status calc
         """
         if len(pos_df) == 0:
@@ -205,7 +205,7 @@ class TelemetryBuilder:
             'is_dnf': is_dnf
         }
 
-        # Convert to Polars (no race_status yet - calculated after track_distance)
+        # Convert to Polars (status will be updated later by SessionProcessor)
         return pl.from_pandas(telemetry_df), status_data
 
     @staticmethod
@@ -518,7 +518,6 @@ class TelemetryBuilder:
         print(f"  → Extracting track/pit from {driver}")
 
         # Extract track from racing laps (lap_number >= 1)
-        # Note: race_status doesn't exist yet - use lap_number from FastF1
         racing = tel.filter(pl.col('lap_number') >= 1)
         if len(racing) == 0:
             print("  ⚠ No racing telemetry found")
@@ -911,10 +910,10 @@ class TelemetryBuilder:
                         first_wrap_idx = wraps_after_warmup[0]
 
                         # Count finish crossings starting from first wrap
-                        # Each wrap completes a lap
+                        # First wrap completes warmup lap (lap 0), subsequent wraps complete racing laps
                         for i, wrap_idx in enumerate(wraps_after_warmup):
-                            # i+1 because first wrap completes lap 1
-                            finish_crossings[wrap_idx:] = i + 1
+                            # i because first wrap completes lap 0, second wrap completes lap 1, etc.
+                            finish_crossings[wrap_idx:] = i
 
             # Calculate lap_number from wrap detection
             # Pre-session: lap_number = -1 (before warmup starts)
@@ -933,10 +932,10 @@ class TelemetryBuilder:
 
             # Calculate race_distance = finish_crossings * track_length + track_distance
             # This equals track_distance before any laps are completed (finish_crossings=0)
-            # Note: race_distance freezing happens in _add_race_status_all() after status is determined
+            # Note: race_distance freezing happens in _add_status_all() after status is determined
             race_distance = (finish_crossings * lap_distance_m + track_distance).astype(np.float32)
 
-            # Add/update columns to telemetry (no race_status yet - calculated in _add_race_status_all)
+            # Add/update columns to telemetry (status updated later by SessionProcessor)
             updated[driver] = (
                 tel.lazy()
                 .with_columns(pl.Series('track_distance', track_distance))
@@ -949,29 +948,33 @@ class TelemetryBuilder:
         return updated
 
     @staticmethod
-    def _add_race_status_all(telemetry: Dict[str, pl.DataFrame],
-                              status_data_all: Dict[str, dict]) -> Dict[str, pl.DataFrame]:
+    def _add_status_all(telemetry: Dict[str, pl.DataFrame],
+                        status_data_all: Dict[str, dict],
+                        warmup_intervals: list = None,
+                        lights_out_offset: float = None) -> Dict[str, pl.DataFrame]:
         """
-        Add race_status column to all drivers using FINAL lap_number and status data.
+        Update status column for all drivers using track status and laps data.
 
         Called AFTER _add_track_distance_all() so lap_number is finalized from wrap detection.
 
-        race_status values (in priority order):
-        - PreSession: lap_number == -1 (before warmup starts)
+        Status values (in priority order):
+        - PreSession: Before any warmup starts
         - Retired: DNF detected (static position or is_dnf flag)
-        - Finished: session_time > finish_time (and not DNF)
+        - Finished: session_time >= finish_time (last lap completion, and not DNF)
         - Pit: session_time within a pit_window
-        - WarmUp: lap_number == 0 (formation lap)
-        - Racing: all other cases (lap_number >= 1)
+        - WarmUp: session_time within any warmup interval (from track_status)
+        - Racing: session_time >= lights_out (default after race start)
 
         Also freezes race_distance when Finished/Retired.
 
         Args:
             telemetry: Dict of driver -> Polars DataFrame (with lap_number, race_distance)
             status_data_all: Dict of driver -> {finish_time, pit_windows, is_dnf}
+            warmup_intervals: List of (start_time, end_time) tuples for WarmUp periods
+            lights_out_offset: Time when lights out happened (race start)
 
         Returns:
-            Updated telemetry dict with race_status column added
+            Updated telemetry dict with status column updated
         """
         updated = {}
 
@@ -1029,8 +1032,23 @@ class TelemetryBuilder:
                         retirement_start_idx = np.where(on_max_lap)[0][0]
 
             # Build status masks (vectorized)
-            is_presession = lap_numbers == -1
-            is_warmup = lap_numbers == 0
+            # PreSession: Before any warmup starts
+            if warmup_intervals and len(warmup_intervals) > 0:
+                first_warmup_start = warmup_intervals[0][0]
+                is_presession = session_times < first_warmup_start
+            else:
+                # Fallback to lights_out_offset if no warmup intervals
+                if lights_out_offset is not None:
+                    is_presession = session_times < lights_out_offset
+                else:
+                    is_presession = np.zeros(n_rows, dtype=bool)
+
+            # WarmUp: Within any warmup interval
+            is_warmup = np.zeros(n_rows, dtype=bool)
+            if warmup_intervals:
+                for start, end in warmup_intervals:
+                    in_warmup = (session_times >= start) & (session_times < end)
+                    is_warmup = is_warmup | in_warmup
 
             # Retired mask
             if driver_actually_retired:
@@ -1040,7 +1058,7 @@ class TelemetryBuilder:
 
             # Finished mask (only if not DNF)
             if finish_time is not None and not driver_actually_retired:
-                is_finished = session_times > finish_time
+                is_finished = session_times >= finish_time
             else:
                 is_finished = np.zeros(n_rows, dtype=bool)
 
@@ -1056,10 +1074,10 @@ class TelemetryBuilder:
                     axis=1
                 )
 
-            # Build race_status using np.select (priority order matters)
+            # Build status using np.select (priority order matters)
             conditions = [is_presession, is_retired, is_finished, is_pit, is_warmup]
             choices = ['PreSession', 'Retired', 'Finished', 'Pit', 'WarmUp']
-            race_status = np.select(conditions, choices, default='Racing')
+            status = np.select(conditions, choices, default='Racing')
 
             # Freeze race_distance when Finished/Retired
             if np.any(is_finished):
@@ -1076,15 +1094,15 @@ class TelemetryBuilder:
                 retire_race_distance = race_distance[first_retire_idx]
                 race_distance[is_retired] = retire_race_distance
 
-            # Update telemetry with race_status and frozen race_distance
+            # Update telemetry with updated status and frozen race_distance
             updated[driver] = (
                 tel.lazy()
-                .with_columns(pl.Series('race_status', race_status))
+                .with_columns(pl.Series('status', status))
                 .with_columns(pl.Series('race_distance', race_distance))
                 .collect()
             )
 
-        print(f"  ✓ Added race_status to {len(updated)} drivers")
+        print(f"  ✓ Updated status for {len(updated)} drivers")
         return updated
 
     @staticmethod

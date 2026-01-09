@@ -143,12 +143,36 @@ class Session:
         return self._data.events.race_control
 
     @property
-    def weather(self) -> pl.DataFrame:
-        return self._data.events.weather
-
-    @property
     def rain_events(self) -> pl.DataFrame:
-        return self._data.rain_events
+        """Extract rain events from track_status."""
+        track_status = self._data.events.track_status
+        if track_status.height == 0:
+            return pl.DataFrame(schema={'start_time': pl.Float64, 'end_time': pl.Float64, 'duration': pl.Float64})
+
+        # Filter rain events
+        rain_starts = track_status.filter(pl.col('status') == 'RainStart')
+        rain_ends = track_status.filter(pl.col('status') == 'RainEnd')
+
+        if rain_starts.height == 0 or rain_ends.height == 0:
+            return pl.DataFrame(schema={'start_time': pl.Float64, 'end_time': pl.Float64, 'duration': pl.Float64})
+
+        # Pair starts with ends
+        rain_events = []
+        start_times = rain_starts['session_time'].to_list()
+        end_times = rain_ends['session_time'].to_list()
+
+        for start in start_times:
+            # Find next end after this start
+            matching_ends = [end for end in end_times if end > start]
+            if matching_ends:
+                end = min(matching_ends)
+                rain_events.append({
+                    'start_time': start,
+                    'end_time': end,
+                    'duration': end - start
+                })
+
+        return pl.DataFrame(rain_events) if rain_events else pl.DataFrame(schema={'start_time': pl.Float64, 'end_time': pl.Float64, 'duration': pl.Float64})
 
     @property
     def fastest_laps(self) -> List:

@@ -655,81 +655,17 @@ class Manager:
             self._session = None
             return self
 
-        # Check if track is placeholder (needs extraction from race session)
+        # Check if track is placeholder (legacy cache file)
         has_real_track = (
             weekend_data.circuit.track.x is not None and
             len(weekend_data.circuit.track.x) > 0
         )
 
-        if not has_real_track or force_update:
-            track_data = None
-            historical = None
-            is_testing = event.event_format == 'testing'
-
-            if is_testing:
-                # Testing events: always use historical race data for track geometry
-                print(f"  → Testing event - searching for historical race at {event.location}...")
-                historical = self._track_finder.find_historical_race(
-                    event.location, year,
-                    circuit=event.circuit_name
-                )
-            else:
-                # Race events: try to get results, fall back to historical
-                results = self.data_loader.load_race_results(year, round_num)
-
-                if results:
-                    print(f"  → Race winner: {results.winner}")
-                    print(f"  → Extracting track from {results.winner}'s telemetry...")
-
-                    # Load session with telemetry for track extraction
-                    raw_session = self.data_loader.get_raw_session(year, round_num, 'R')
-                    if raw_session:
-                        # Extract track directly using TelemetryBuilder
-                        track_data = TelemetryBuilder.extract_track_from_driver(
-                            raw_session, results.winner
-                        )
-                else:
-                    # Future race - try to get track from historical data
-                    circuit_name = event.circuit_name or event.location
-                    print(f"  → Future race - searching historical data for {circuit_name}...")
-                    historical = self._track_finder.find_historical_race(
-                        event.location, year,
-                        circuit=event.circuit_name
-                    )
-
-            # Extract from historical if needed
-            historical_rotation = None
-            if track_data is None and historical:
-                hist_year, hist_round, hist_event = historical
-                print(f"  → Using track data from {hist_year} {hist_event.name}")
-
-                # Get results and extract track from historical race
-                hist_results = self.data_loader.load_race_results(hist_year, hist_round)
-                if hist_results:
-                    raw_session = self.data_loader.get_raw_session(hist_year, hist_round, 'R')
-                    if raw_session:
-                        track_data = TelemetryBuilder.extract_track_from_driver(
-                            raw_session, hist_results.winner
-                        )
-                        # Get rotation from historical session
-                        try:
-                            circuit_info = raw_session.get_circuit_info()
-                            if circuit_info and hasattr(circuit_info, 'rotation'):
-                                historical_rotation = float(circuit_info.rotation)
-                        except:
-                            pass
-
-            if track_data is None and not is_testing:
-                circuit_name = event.circuit_name or event.location
-                print(f"  ✗ No historical data for '{circuit_name}' - new circuit on calendar")
-
-            if track_data:
-                location_dir = get_location_dir(event)
-
-                # Update weekend with track data (DataLoader handles caching)
-                weekend_data = self.data_loader.update_weekend_track(
-                    weekend_data, track_data, location_dir, rotation=historical_rotation
-                )
+        # Only run legacy extraction if placeholder track (not if force_update with real track)
+        # When force_update=True AND we got real track from new flow, don't overwrite it
+        if not has_real_track:
+            print(f"  ⚠ Legacy cache detected - extracting track...")
+            weekend_data = self._extract_track_legacy(weekend_data, event, year, round_num)
 
         # Create session loader callback for weekend.load_session()
         def session_loader(session_type: str, force: bool = False) -> Optional[Session]:
@@ -748,6 +684,96 @@ class Manager:
                 self._weekend.load_session(session_type, force_update=force_update)
 
         return self
+
+    def _extract_track_legacy(self, weekend_data, event, year: int, round_num: int):
+        """
+        Legacy track extraction for old cache files (backward compatibility).
+
+        Extracts track geometry using TelemetryBuilder.extract_track_from_driver
+        and updates Weekend.pkl.
+
+        Args:
+            weekend_data: F1Weekend with placeholder track
+            event: EventInfo
+            year: Season year
+            round_num: Round number
+
+        Returns:
+            Updated F1Weekend with real track geometry
+        """
+        track_data = None
+        historical = None
+        is_testing = event.event_format == 'testing'
+
+        if is_testing:
+            # Testing events: always use historical race data for track geometry
+            print(f"  → Testing event - searching for historical race at {event.location}...")
+            historical = self._track_finder.find_historical_race(
+                event.location, year,
+                circuit=event.circuit_name
+            )
+        else:
+            # Race events: try to get results, fall back to historical
+            results = self.data_loader.load_race_results(year, round_num)
+
+            if results:
+                print(f"  → Race winner: {results.winner}")
+                print(f"  → Extracting track from {results.winner}'s telemetry...")
+
+                # Load session with telemetry for track extraction
+                raw_session = self.data_loader.get_raw_session(year, round_num, 'R')
+                if raw_session:
+                    # Extract track directly using TelemetryBuilder
+                    from f1_replay.loaders.session.telemetry import TelemetryBuilder
+                    track_data = TelemetryBuilder.extract_track_from_driver(
+                        raw_session, results.winner
+                    )
+            else:
+                # Future race - try to get track from historical data
+                circuit_name = event.circuit_name or event.location
+                print(f"  → Future race - searching historical data for {circuit_name}...")
+                historical = self._track_finder.find_historical_race(
+                    event.location, year,
+                    circuit=event.circuit_name
+                )
+
+        # Extract from historical if needed
+        historical_rotation = None
+        if track_data is None and historical:
+            hist_year, hist_round, hist_event = historical
+            print(f"  → Using track data from {hist_year} {hist_event.name}")
+
+            # Get results and extract track from historical race
+            hist_results = self.data_loader.load_race_results(hist_year, hist_round)
+            if hist_results:
+                raw_session = self.data_loader.get_raw_session(hist_year, hist_round, 'R')
+                if raw_session:
+                    from f1_replay.loaders.session.telemetry import TelemetryBuilder
+                    track_data = TelemetryBuilder.extract_track_from_driver(
+                        raw_session, hist_results.winner
+                    )
+                    # Get rotation from historical session
+                    try:
+                        circuit_info = raw_session.get_circuit_info()
+                        if circuit_info and hasattr(circuit_info, 'rotation'):
+                            historical_rotation = float(circuit_info.rotation)
+                    except:
+                        pass
+
+        if track_data is None and not is_testing:
+            circuit_name = event.circuit_name or event.location
+            print(f"  ✗ No historical data for '{circuit_name}' - new circuit on calendar")
+
+        if track_data:
+            from f1_replay.models.event import get_location_dir
+            location_dir = get_location_dir(event)
+
+            # Update weekend with track data (DataLoader handles caching)
+            weekend_data = self.data_loader.update_weekend_track(
+                weekend_data, track_data, location_dir, rotation=historical_rotation
+            )
+
+        return weekend_data
 
     def _load_session_internal(self, session_type: str, force_update: bool = False) -> Optional[Session]:
         """
@@ -785,6 +811,7 @@ class Manager:
             year, round_num, session_type,
             event=event,
             circuit_length=self._weekend.circuit_length,
+            weekend_track=self._weekend.circuit.track,
             force_reprocess=force_update
         )
         if result is None:
@@ -851,11 +878,12 @@ class Manager:
             except (ValueError, TypeError):
                 pass
 
-        # Load full session data
+        # Load full session data (pass weekend track for track_distance calculation)
         result = self.data_loader.load_session(
             year, round_num, session_type,
             event=event or self._current_event,
             circuit_length=self._weekend.circuit_length,
+            weekend_track=self._weekend.circuit.track,
             force_reprocess=force_update
         )
         if result is None:

@@ -91,7 +91,7 @@ def serialize_telemetry(telemetry_dict: Dict[str, pl.DataFrame],
         fields = [
             'session_time', 'lap_number', 'x', 'y',
             'track_distance', 'race_distance', 'position', 'interval',
-            'race_status', 'compound', 'tyre_life', 'speed'
+            'status', 'compound', 'tyre_life', 'speed'
         ]
 
     # Fields that should be rounded to reduce JSON size

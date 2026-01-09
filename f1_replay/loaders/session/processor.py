@@ -7,6 +7,7 @@ Event times are normalized to session start (t0) automatically.
 
 from typing import Optional, Dict, Any
 import datetime
+import numpy as np
 import polars as pl
 import pandas as pd
 from f1_replay.models import (
@@ -23,16 +24,18 @@ from f1_replay.loaders.session.order import OrderBuilder
 class SessionProcessor:
     """Process and build SessionData."""
 
-    def __init__(self, fastf1_client: FastF1Client, circuit_length: float):
+    def __init__(self, fastf1_client: FastF1Client, circuit_length: float, weekend_track=None):
         """
         Initialize processor.
 
         Args:
             fastf1_client: FastF1Client instance
             circuit_length: Track length for metadata
+            weekend_track: Optional TrackGeometry from Weekend (for adding track_distance to telemetry)
         """
         self.fastf1_client = fastf1_client
         self.circuit_length = circuit_length
+        self.weekend_track = weekend_track
 
     def _get_session_start_seconds_of_day(self, t0_date_utc: Optional[str]) -> Optional[float]:
         """Get session start time in seconds of day."""
@@ -194,8 +197,7 @@ class SessionProcessor:
 
         renormalized_events = EventsData(
             track_status=renormalize_df(session_data.events.track_status),
-            race_control=renormalize_df(session_data.events.race_control),
-            weather=renormalize_df(session_data.events.weather)
+            race_control=renormalize_df(session_data.events.race_control)
         )
 
         # Re-normalize results if they have session_time
@@ -207,9 +209,7 @@ class SessionProcessor:
                     # Update snapshot time
                     new_time = snapshot.time - race_start_time if snapshot.time is not None else snapshot.time
                     new_snapshot = snapshot.__class__(
-                        time=new_time,
-                        lap=snapshot.lap,
-                        standings=snapshot.standings
+                        time=new_time,                        standings=snapshot.standings
                     )
                     renormalized_positions.append(new_snapshot)
 
@@ -218,44 +218,27 @@ class SessionProcessor:
                     position_history=renormalized_positions
                 )
 
-        # Re-normalize rain_events if present
-        renormalized_rain_events = session_data.rain_events
-        if session_data.rain_events and len(session_data.rain_events) > 0:
-            renormalized_rain_list = []
-            for rain_event in session_data.rain_events:
-                # Rain events have start_time and end_time
-                if hasattr(rain_event, 'start_time') and hasattr(rain_event, 'end_time'):
-                    new_start = rain_event.start_time - race_start_time if rain_event.start_time is not None else rain_event.start_time
-                    new_end = rain_event.end_time - race_start_time if rain_event.end_time is not None else rain_event.end_time
-                    new_event = rain_event.__class__(
-                        start_time=new_start,
-                        end_time=new_end,
-                        duration=rain_event.duration
-                    )
-                    renormalized_rain_list.append(new_event)
-            if renormalized_rain_list:
-                renormalized_rain_events = renormalized_rain_list
-
         # Create new SessionData with renormalized times
         return replace(
             session_data,
             telemetry=renormalized_telemetry,
             events=renormalized_events,
-            results=renormalized_results,
-            rain_events=renormalized_rain_events
+            results=renormalized_results
         )
 
     def build_session(self, year: int, round_num: int,
                      session_type: str, event_name: str) -> Optional[tuple]:
         """
-        Build complete session data with telemetry-first architecture.
+        Build complete session data with logical dependency order.
 
-        Processing order:
-        1. Load metadata
-        2. Build COMPLETE telemetry (with RawTime, session_time, progress, status, TimeToDriverAhead)
-        3. Build events (track status, weather, race control)
-        4. Build results (fastest laps, position history)
-        5. Extract rain events
+        Processing order (NEW):
+        1. Load FastF1 session
+        2. Extract DNF drivers
+        3. Build SessionMetadata FIRST (uses f1_session.date for warmup start)
+        4. Build EventsData SECOND (uses metadata.t0 for synthetic events)
+        5. Build Telemetry LAST (all dependencies available)
+        6. Add track distance, positions, intervals
+        7. Build results
 
         Args:
             year: Season year
@@ -268,63 +251,145 @@ class SessionProcessor:
         """
         print(f"→ Loading session {year} R{round_num} {session_type}...")
 
-        # Load session with all data
+        # STEP 1: Load FastF1 session
         f1_session = self.fastf1_client.get_session_with_all_data(year, round_num, session_type)
         if f1_session is None:
             return None
 
-        # Extract DNF drivers from results BEFORE building telemetry
-        # This ensures we correctly mark retired drivers even with bad telemetry data
+        # STEP 2: Extract DNF drivers
         dnf_drivers_set = self._extract_dnf_drivers(f1_session)
 
-        # Build telemetry from pos_data + car_data (compacted)
+        # STEP 3: Build SessionMetadata FIRST ★
+        print(f"  → Building metadata...")
+        metadata = self._build_metadata(
+            year, round_num, session_type, event_name,
+            f1_session,
+            laps_df=f1_session.laps  # For lights_out_offset extraction
+        )
+        print(f"  ✓ Metadata built with {len(metadata.drivers)} drivers")
+
+        # STEP 4: Build EventsData SECOND ★
+        print(f"  → Building events...")
+        events = self._build_events(f1_session, t0_info=metadata.t0)
+        print(f"  ✓ Events built")
+
+        # STEP 5: Build Telemetry LAST ★
         print(f"  → Building telemetry from pos_data + car_data...")
-        telemetry, track_data, session_timing = TelemetryBuilder.build_telemetry(f1_session, dnf_drivers=dnf_drivers_set)
+        telemetry, track_data, session_timing, status_data_all = TelemetryBuilder.build_telemetry(
+            f1_session,
+            dnf_drivers=dnf_drivers_set,
+            extract_track=False  # Track extracted during weekend build, not session
+        )
 
         if not telemetry:
             print(f"  ⚠ No telemetry data available")
             return None
 
-        # Update circuit_length from track_data if available
-        # track_data.lap_distance is in decimeters, convert to meters
-        if track_data:
-            self.circuit_length = track_data.lap_distance / 10.0
+        # STEP 6: Add track distance using weekend's track geometry
+        if self.weekend_track is not None and self.weekend_track.x is not None:
+            print(f"  → Adding track_distance from weekend track geometry...")
+            # Create a temporary TrackData-like structure for TelemetryBuilder
+            from f1_replay.loaders.session.telemetry import TrackData
+            temp_track_data = TrackData(
+                track_x=self.weekend_track.x,
+                track_y=self.weekend_track.y,
+                track_z=self.weekend_track.z,
+                track_distance=(self.weekend_track.distance * 10.0).astype(np.float32) if self.weekend_track.distance is not None else None,  # meters -> decimeters
+                lap_distance=self.weekend_track.lap_distance * 10.0,  # meters -> decimeters
+                pit_x=None, pit_y=None, pit_distance=None, pit_length=0.0,
+                pit_entry_distance=None, pit_exit_distance=None,
+                marshal_sectors=[], speed=None, throttle=None, brake=None
+            )
+            # Use metadata.t0 for session_timing (compatibility with existing code)
+            session_timing_compat = None
+            if metadata.t0 and metadata.t0.warmup_start_offset is not None:
+                session_timing_compat = {'warmup_start_time': metadata.t0.warmup_start_offset}
 
-        # Add position column to telemetry
+            # Add track_distance, race_distance, and update lap_number
+            telemetry = TelemetryBuilder._add_track_distance_all(telemetry, temp_track_data, session_timing_compat)
+            print(f"  ✓ Track distance added from weekend track")
+
+        # STEP 6.5: Update status column (ALWAYS, regardless of track geometry)
+        # Extract warmup intervals from track_status
+        warmup_intervals = []
+        if events and events.track_status is not None:
+            warmup_events = events.track_status.filter(events.track_status['status'] == 'WarmUp')
+            for row in warmup_events.iter_rows(named=True):
+                start = row['session_time']
+                end = row.get('end_time', None)
+                if start is not None and end is not None:
+                    warmup_intervals.append((start, end))
+
+        # Get lights_out_offset from metadata
+        lights_out_offset = metadata.t0.lights_out_offset if metadata.t0 else None
+
+        # Update status column using warmup intervals and lights_out
+        telemetry = TelemetryBuilder._add_status_all(
+            telemetry,
+            status_data_all,
+            warmup_intervals=warmup_intervals,
+            lights_out_offset=lights_out_offset
+        )
+        print(f"  ✓ Status updated from track events")
+
+        # STEP 7: Add positions and intervals
         print(f"  → Adding positions to telemetry...")
         telemetry = OrderBuilder.add_positions_to_telemetry(telemetry)
         print(f"  ✓ Positions added to {len(telemetry)} drivers")
 
-        # Add interval column to telemetry
         print(f"  → Adding intervals to telemetry...")
         telemetry = OrderBuilder.add_intervals_to_telemetry(telemetry)
         print(f"  ✓ Intervals added")
 
-        # Build metadata (includes T0Info with duration calculated from telemetry)
-        metadata = self._build_metadata(year, round_num, session_type, event_name, f1_session, telemetry, session_timing)
-
-        # Build events (track status, weather, race control)
-        # Uses session.date as reference for time normalization
-        events = self._build_events(f1_session)
-
-        # Build results (fastest laps, position history)
+        # STEP 8: Build results
         t0_utc = metadata.t0.utc if metadata.t0 else None
         results = self._build_results(f1_session, telemetry, t0_utc)
 
-        # Extract rain events from weather data
-        rain_events = WeatherExtractor.extract_rain_events(events.weather)
+        # STEP 9: Update metadata with telemetry session_duration
+        if metadata.t0 and telemetry:
+            # Recalculate session_duration now that we have telemetry
+            max_time = 0.0
+            min_time = float('inf')
+            for df in telemetry.values():
+                if 'session_time' in df.columns and len(df) > 0:
+                    max_time = max(max_time, df['session_time'].max())
+                    min_time = min(min_time, df['session_time'].min())
+            if min_time != float('inf'):
+                session_duration = max_time - min_time
+                # Update T0Info with calculated session_duration
+                from f1_replay.models.session import T0Info
+                metadata = SessionMetadata(
+                    session_type=metadata.session_type,
+                    year=metadata.year,
+                    round_number=metadata.round_number,
+                    event_name=metadata.event_name,
+                    drivers=metadata.drivers,
+                    driver_numbers=metadata.driver_numbers,
+                    driver_names=metadata.driver_names,
+                    driver_teams=metadata.driver_teams,
+                    driver_colors=metadata.driver_colors,
+                    team_colors=metadata.team_colors,
+                    track_length=metadata.track_length,
+                    total_laps=metadata.total_laps,
+                    dnf_drivers=metadata.dnf_drivers,
+                    t0=T0Info(
+                        utc=metadata.t0.utc,
+                        timezone=metadata.t0.timezone,
+                        utc_offset_hours=metadata.t0.utc_offset_hours,
+                        warmup_start_offset=metadata.t0.warmup_start_offset,
+                        lights_out_offset=metadata.t0.lights_out_offset,
+                        session_duration=session_duration
+                    ),
+                    start_time_local=metadata.start_time_local
+                )
 
         # Create final SessionData
         session_data = SessionData(
             metadata=metadata,
             telemetry=telemetry,
             events=events,
-            results=results,
-            rain_events=rain_events
+            results=results
         )
-
-        if len(rain_events) > 0:
-            print(f"  ✓ Extracted {len(rain_events)} rain event(s)")
 
         print(f"  ✓ Session complete: {len(metadata.drivers)} drivers, {len(telemetry)} with telemetry")
         return session_data, f1_session, track_data
@@ -358,9 +423,23 @@ class SessionProcessor:
         return dnf_drivers
 
     def _build_metadata(self, year: int, round_num: int, session_type: str,
-                       event_name: str, f1_session, telemetry: Dict[str, pl.DataFrame],
-                       session_timing: Optional[dict] = None) -> SessionMetadata:
-        """Build session metadata."""
+                       event_name: str, f1_session, laps_df,
+                       telemetry: Optional[Dict[str, pl.DataFrame]] = None) -> SessionMetadata:
+        """
+        Build SessionMetadata using FastF1 data directly.
+
+        Args:
+            year: Season year
+            round_num: Round number
+            session_type: Session type ("R", "Q", etc.)
+            event_name: Event name
+            f1_session: FastF1 session object
+            laps_df: Lap data for lights_out_offset extraction
+            telemetry: Optional telemetry for session_duration calculation
+
+        Returns:
+            Complete SessionMetadata with T0Info
+        """
         drivers = self.fastf1_client.get_drivers_in_session(f1_session)
         results = self.fastf1_client.get_driver_results(f1_session)
 
@@ -400,8 +479,8 @@ class SessionProcessor:
                     if not is_finished:
                         dnf_drivers.append(abbr)
 
-        # Build T0Info with all time conversion references (including warmup timing)
-        t0_info = self._build_t0_info(f1_session, telemetry, session_timing)
+        # Build T0Info (now uses f1_session.date directly for warmup start)
+        t0_info = self._build_t0_info(f1_session, laps_df, telemetry)
 
         # Extract session start time as ISO string (for timezone conversion in display)
         start_time_local = None
@@ -432,18 +511,23 @@ class SessionProcessor:
 
         return metadata
 
-    def _build_t0_info(self, f1_session, telemetry: Dict[str, pl.DataFrame],
-                       session_timing: Optional[dict] = None) -> Optional[T0Info]:
+    def _build_t0_info(self, f1_session, laps_df, telemetry: Optional[Dict[str, pl.DataFrame]] = None) -> Optional[T0Info]:
         """
-        Build T0Info with time reference for session normalization.
+        Build T0Info using FastF1's session start time.
 
-        t0.utc = FastF1's timing zero (t0_date) - the point where session_time=0
-        lights_out_offset = seconds from t0 to lights out (positive value)
-        warmup_start_offset = seconds from t0 to formation lap start (positive value)
-        session_duration = total telemetry duration
+        Args:
+            f1_session: FastF1 session object
+            laps_df: Lap data (for extracting lights_out_offset)
+            telemetry: Optional telemetry for session_duration calculation
 
-        This means session_time directly matches FastF1's SessionTime (converted to seconds).
-        To get race_time (relative to lights out): race_time = session_time - lights_out_offset
+        Returns:
+            T0Info with warmup_start_time and lights_out_offset
+
+        Note:
+            t0.utc = FastF1's timing zero (t0_date) - the point where session_time=0
+            lights_out_offset = seconds from t0 to lights out (positive value)
+            warmup_start_offset = seconds from t0 to session scheduled start (positive value)
+            session_duration = total telemetry duration
         """
         t0_date = getattr(f1_session, 't0_date', None)
 
@@ -456,39 +540,19 @@ class SessionProcessor:
         # t0.utc is the timing zero (t0_date) - when session_time=0
         t0_utc_str = t0_date.isoformat()
 
-        # Find actual lights out time from lap data (when lap 1 starts)
-        lights_out_time = None
-        try:
-            laps = getattr(f1_session, 'laps', None)
-            if laps is not None and len(laps) > 0:
-                # Find first lap 1 entry (any driver)
-                lap1_data = laps[laps['LapNumber'] == 1]
-                if len(lap1_data) > 0:
-                    # LapStartTime is when the lap started (lights out for lap 1)
-                    lap_start = lap1_data['LapStartTime'].min()
-                    if pd.notna(lap_start):
-                        # LapStartTime is timedelta from t0_date
-                        if hasattr(lap_start, 'total_seconds'):
-                            lights_out_time = t0_date + lap_start
-                        else:
-                            lights_out_time = pd.Timestamp(lap_start)
-        except Exception:
-            pass
+        # Get session scheduled start (warmup start) from f1_session.date
+        warmup_start_offset = None
+        session_start = getattr(f1_session, 'date', None)
+        if session_start is not None:
+            if not isinstance(session_start, pd.Timestamp):
+                session_start = pd.Timestamp(session_start)
+            # warmup_start_offset = seconds from t0 to session scheduled start
+            warmup_start_offset = (session_start - t0_date).total_seconds()
 
-        # Fallback to session.date if we couldn't find lap 1 start
-        if lights_out_time is None:
-            session_date = getattr(f1_session, 'date', None)
-            if session_date is not None:
-                lights_out_time = pd.Timestamp(session_date) if not isinstance(session_date, pd.Timestamp) else session_date
-            else:
-                # No lights out time available, use t0_date as fallback (offset=0)
-                lights_out_time = t0_date
+        # Extract lights_out_offset from lap data
+        lights_out_offset = self._extract_lights_out_offset(laps_df, t0_date)
 
-        # lights_out_offset = seconds from t0 to lights out (positive value)
-        # race_time = session_time - lights_out_offset
-        lights_out_offset = (lights_out_time - t0_date).total_seconds()
-
-        # Calculate session_duration from telemetry
+        # Calculate session_duration from telemetry (if available)
         session_duration = 0.0
         if telemetry:
             max_time = 0.0
@@ -544,11 +608,6 @@ class SessionProcessor:
         except Exception:
             pass
 
-        # Extract warmup_start_offset from session_timing
-        warmup_start_offset = None
-        if session_timing:
-            warmup_start_offset = session_timing.get('warmup_start_time')
-
         return T0Info(
             utc=t0_utc_str,
             timezone=timezone_str,
@@ -558,12 +617,365 @@ class SessionProcessor:
             session_duration=session_duration
         )
 
-    def _build_events(self, f1_session) -> EventsData:
+    def _extract_lights_out_offset(self, laps_df, t0_date: pd.Timestamp) -> Optional[float]:
         """
-        Build events data (track status, weather, messages).
+        Extract lights out time (race start) from lap data.
+
+        Lights out = when lap 1 starts (LapStartTime for lap 1).
+
+        Args:
+            laps_df: FastF1 laps DataFrame
+            t0_date: Timing system zero point
+
+        Returns:
+            Seconds from t0_date to lights out, or None if not available
+        """
+        if laps_df is None or len(laps_df) == 0:
+            return None
+
+        try:
+            # Find first lap 1 entry (any driver)
+            lap1_data = laps_df[laps_df['LapNumber'] == 1]
+            if len(lap1_data) == 0:
+                return None
+
+            # LapStartTime is when the lap started (lights out for lap 1)
+            lap_start = lap1_data['LapStartTime'].min()
+            if pd.notna(lap_start):
+                # LapStartTime is timedelta from t0_date
+                if hasattr(lap_start, 'total_seconds'):
+                    # It's a timedelta - convert to seconds
+                    return lap_start.total_seconds()
+                else:
+                    # It's an absolute timestamp - calculate offset
+                    lap_start_ts = pd.Timestamp(lap_start)
+                    return (lap_start_ts - t0_date).total_seconds()
+        except Exception:
+            pass
+
+        return None
+
+    def _add_synthetic_events(self, track_status_list: list, t0_info) -> list:
+        """
+        Add synthetic events to track status: Session Start and Lights Out.
+
+        Args:
+            track_status_list: Existing track status events
+            t0_info: Time reference (contains warmup_start_offset and lights_out_offset)
+
+        Returns:
+            Track status list with synthetic events added
+        """
+        from f1_replay.models.session import TrackStatusEvent
+
+        # Add "Start of Session" event (WARM UP)
+        if t0_info and t0_info.warmup_start_offset is not None:
+            track_status_list.append(TrackStatusEvent(
+                session_time=t0_info.warmup_start_offset,
+                status="SessionStart",
+                message="Start of Session",
+                scope="Track",
+                sector=None,
+                driver_num=""
+            ))
+
+        # Add "Lights Out" event (RACE START)
+        if t0_info and t0_info.lights_out_offset is not None:
+            track_status_list.append(TrackStatusEvent(
+                session_time=t0_info.lights_out_offset,
+                status="LightsOut",
+                message="",
+                scope="Track",
+                sector=None,
+                driver_num=""
+            ))
+
+        return track_status_list
+
+    def _integrate_rain_events(self, track_status_list: list, weather_df: pl.DataFrame) -> list:
+        """
+        Add rain events to track status.
+
+        Uses WeatherExtractor.extract_rain_events() to find rain periods,
+        then adds "RainStart" and "RainEnd" events to track status.
+
+        Args:
+            track_status_list: Existing track status events
+            weather_df: Weather DataFrame with rainfall data
+
+        Returns:
+            Track status list with rain events added
+        """
+        from f1_replay.loaders.session.weather import WeatherExtractor
+        from f1_replay.models.session import TrackStatusEvent
+
+        if weather_df is None or weather_df.height == 0:
+            return track_status_list
+
+        # Extract rain periods
+        rain_events = WeatherExtractor.extract_rain_events(weather_df)
+
+        if rain_events is None or rain_events.height == 0:
+            return track_status_list
+
+        # Add rain events to track status (as intervals with end_time already set)
+        for row in rain_events.iter_rows(named=True):
+            # Create Rain interval directly with start and end time
+            track_status_list.append(TrackStatusEvent(
+                session_time=row["start_time"],
+                status="Rain",
+                message="RAIN REPORTED",
+                scope="Track",
+                sector=None,
+                driver_num="",
+                end_time=row["end_time"]
+            ))
+
+        return track_status_list
+
+    def _consolidate_track_status_intervals(self, track_status_list: list, t0_info) -> tuple[list, dict]:
+        """
+        Consolidate discrete track status events into intervals with start/end times.
+
+        Transformations:
+        - WARM UP (SessionStart) -> starts at warmup_start_offset, ends at lights_out_offset
+        - Yellow/DoubleYellow in sector -> starts at event, ends at AllClear in that sector
+        - SafetyCar -> starts at deployment, ends at AllClear
+        - SCEnding -> starts at announcement, ends at AllClear
+        - Rain events already have intervals (start_time in message)
+
+        Args:
+            track_status_list: Sorted list of track status events
+            t0_info: Time reference for getting lights_out_offset
+
+        Returns:
+            Tuple of (intervals list, consolidation report dict)
+        """
+        from f1_replay.models.session import TrackStatusEvent
+
+        intervals = []
+        open_statuses = {}  # Key: (scope, sector, status) -> event
+        report = {
+            'total_input_events': len(track_status_list),
+            'total_output_intervals': 0,
+            'merged_intervals': [],
+            'instant_events': [],
+            'ongoing_intervals': []
+        }
+
+        for event in track_status_list:
+            scope = event.scope or "Track"
+            sector = event.sector
+            status = event.status
+
+            # Handle WARM UP (SessionStart / FormationLap opens, AbortedStart / LightsOut closes)
+            if status == "SessionStart" or status == "FormationLap":
+                # Open a new WarmUp interval
+                key = ("Track", None, "WarmUp")
+                open_statuses[key] = TrackStatusEvent(
+                    session_time=event.session_time,
+                    status="WarmUp",
+                    message="FORMATION LAP STARTED",
+                    scope="Track",
+                    sector=None,
+                    driver_num="",
+                    end_time=None
+                )
+                continue
+
+            # Handle AbortedStart - closes current WarmUp (but doesn't add as discrete event)
+            if status == "AbortedStart":
+                key = ("Track", None, "WarmUp")
+                if key in open_statuses:
+                    start_event = open_statuses.pop(key)
+                    warmup_interval = TrackStatusEvent(
+                        session_time=start_event.session_time,                        status="WarmUp",
+                        message=start_event.message,
+                            scope="Track",
+                        sector=None,
+                        driver_num="",                        end_time=event.session_time
+                    )
+                    intervals.append(warmup_interval)
+                    report['merged_intervals'].append({
+                        'type': 'WarmUp',
+                        'start_event': start_event.message,
+                        'end_event': 'AbortedStart',
+                        'start_time': start_event.session_time,
+                        'end_time': event.session_time,
+                        'duration': event.session_time - start_event.session_time
+                    })
+
+                # Add AbortedStart as instant event
+                intervals.append(event)
+                report['instant_events'].append({
+                    'status': 'AbortedStart',
+                    'time': event.session_time,
+                    'message': event.message
+                })
+                continue
+
+            # Handle LightsOut - closes WarmUp and adds as instant event
+            if status == "LightsOut":
+                # Close any open WarmUp
+                key = ("Track", None, "WarmUp")
+                if key in open_statuses:
+                    start_event = open_statuses.pop(key)
+                    warmup_interval = TrackStatusEvent(
+                        session_time=start_event.session_time,                        status="WarmUp",
+                        message=start_event.message,
+                            scope="Track",
+                        sector=None,
+                        driver_num="",                        end_time=event.session_time
+                    )
+                    intervals.append(warmup_interval)
+                    report['merged_intervals'].append({
+                        'type': 'WarmUp',
+                        'start_event': start_event.message,
+                        'end_event': 'LightsOut',
+                        'start_time': start_event.session_time,
+                        'end_time': event.session_time,
+                        'duration': event.session_time - start_event.session_time
+                    })
+
+                # Add LightsOut as instant event
+                intervals.append(event)
+                report['instant_events'].append({
+                    'status': 'LightsOut',
+                    'time': event.session_time,
+                    'message': event.message
+                })
+                continue
+
+            # Handle AllClear - closes all open statuses in this scope/sector
+            if status == "AllClear":
+                # Close sector-specific statuses
+                if sector is not None:
+                    keys_to_close = [k for k in open_statuses.keys() if k[0] == scope and k[1] == sector]
+                else:
+                    # Track-wide clear closes everything in this scope
+                    keys_to_close = [k for k in open_statuses.keys() if k[0] == scope]
+
+                for key in keys_to_close:
+                    start_event = open_statuses.pop(key)
+                    closed_interval = TrackStatusEvent(
+                        session_time=start_event.session_time,                        status=start_event.status,
+                        message=start_event.message,
+                            scope=start_event.scope,
+                        sector=start_event.sector,
+                        driver_num=start_event.driver_num,                        end_time=event.session_time
+                    )
+                    intervals.append(closed_interval)
+                    report['merged_intervals'].append({
+                        'type': start_event.status,
+                        'start_event': start_event.status,
+                        'end_event': 'AllClear',
+                        'start_time': start_event.session_time,
+                        'end_time': event.session_time,
+                        'duration': event.session_time - start_event.session_time,
+                        'sector': start_event.sector
+                    })
+                continue
+
+            # Handle Rain events - already come as intervals with end_time set
+            if status == "Rain":
+                # Rain intervals are pre-consolidated, just add to intervals
+                intervals.append(event)
+                report['merged_intervals'].append({
+                    'type': 'Rain',
+                    'start_event': 'Rain',
+                    'end_event': 'Rain',
+                    'start_time': event.session_time,
+                    'end_time': event.end_time,
+                    'duration': event.end_time - event.session_time if event.end_time else 0
+                })
+                continue
+
+            # Handle Chequered flag - instant event
+            if status == "Chequered":
+                intervals.append(event)
+                report['instant_events'].append({
+                    'status': 'Chequered',
+                    'time': event.session_time,
+                    'message': event.message
+                })
+                # Close all open statuses at chequered flag
+                for start_event in open_statuses.values():
+                    closed_interval = TrackStatusEvent(
+                        session_time=start_event.session_time,                        status=start_event.status,
+                        message=start_event.message,
+                            scope=start_event.scope,
+                        sector=start_event.sector,
+                        driver_num=start_event.driver_num,                        end_time=event.session_time
+                    )
+                    intervals.append(closed_interval)
+                    report['merged_intervals'].append({
+                        'type': start_event.status,
+                        'start_event': start_event.status,
+                        'end_event': 'Chequered',
+                        'start_time': start_event.session_time,
+                        'end_time': event.session_time,
+                        'duration': event.session_time - start_event.session_time,
+                        'sector': start_event.sector,
+                        'note': 'Closed at Chequered flag'
+                    })
+                open_statuses.clear()
+                continue
+
+            # Handle Blue flags and Black/White flags - discrete events (not intervals)
+            # Each blue flag shown is a separate warning and should not be merged
+            if status in ("Blue", "BlackWhite"):
+                intervals.append(event)
+                report['instant_events'].append({
+                    'status': status,
+                    'time': event.session_time,
+                    'message': event.message
+                })
+                continue
+
+            # All other statuses (Yellow, DoubleYellow, Red, SafetyCar, SCEnding, VSC, etc.)
+            # Open a new interval
+            key = (scope, sector, status)
+            open_statuses[key] = event
+
+        # Close any remaining open statuses (end_time = None means ongoing)
+        for start_event in open_statuses.values():
+            ongoing_interval = TrackStatusEvent(
+                session_time=start_event.session_time,                status=start_event.status,
+                message=start_event.message,
+                            scope=start_event.scope,
+                sector=start_event.sector,
+                driver_num=start_event.driver_num,                end_time=None  # Ongoing
+            )
+            intervals.append(ongoing_interval)
+            report['ongoing_intervals'].append({
+                'type': start_event.status,
+                'start_time': start_event.session_time,
+                'sector': start_event.sector,
+                'note': 'Never closed (ongoing or session ended)'
+            })
+
+        # Finalize report
+        report['total_output_intervals'] = len(intervals)
+        report['summary'] = {
+            'merged_count': len(report['merged_intervals']),
+            'instant_count': len(report['instant_events']),
+            'ongoing_count': len(report['ongoing_intervals']),
+            'reduction': f"{report['total_input_events']} events → {report['total_output_intervals']} intervals"
+        }
+
+        return intervals, report
+
+    def _build_events(self, f1_session, t0_info=None) -> EventsData:
+        """
+        Build events data (track status and race control messages).
 
         All event times are normalized to t0_date (FastF1's timing zero), consistent
         with telemetry session_time. Use T0Info.lights_out_offset to convert to race_time.
+
+        Weather data is built temporarily for rain event extraction but NOT stored.
+        Rain events are integrated directly into track_status.
+
+        Synthetic events (SessionStart, LightsOut) are added to track_status.
 
         IMPORTANT: FastF1 time references:
         - t0_date: Timing system zero point (session_time=0 in telemetry)
@@ -572,6 +984,7 @@ class SessionProcessor:
 
         Args:
             f1_session: FastF1 session object
+            t0_info: Time reference (for synthetic events)
         """
         t0_date = getattr(f1_session, 't0_date', None)
 
@@ -587,31 +1000,7 @@ class SessionProcessor:
         race_control_list = self._extract_race_control_messages(f1_session, t0_datetime)
         weather_list = self._extract_weather_data(f1_session, t0_datetime)
 
-        # Convert lists to Polars DataFrames for efficient storage and querying
-        track_status_df = pl.DataFrame([
-            {
-                'session_time': event.session_time,
-                'raw_time': event.raw_time,
-                'status': event.status,
-                'message': event.message,
-                'flag_type': event.flag_type,
-                'scope': event.scope,
-                'sector': event.sector,
-                'driver_num': event.driver_num,
-                'lap': event.lap
-            }
-            for event in track_status_list
-        ]) if track_status_list else pl.DataFrame()
-
-        race_control_df = pl.DataFrame([
-            {
-                'message': msg.message,
-                'time': msg.time,
-                'session_time': msg.session_time
-            }
-            for msg in race_control_list
-        ]) if race_control_list else pl.DataFrame()
-
+        # Build weather DataFrame temporarily for rain extraction (not stored)
         weather_df = pl.DataFrame([
             {
                 'temperature': sample.temperature,
@@ -626,13 +1015,55 @@ class SessionProcessor:
             for sample in weather_list
         ]) if weather_list else pl.DataFrame()
 
-        if track_status_list or race_control_list or weather_list:
-            print(f"  → Events: {len(track_status_list)} track status, {len(race_control_list)} messages, {len(weather_list)} weather samples")
+        # Add synthetic events (SessionStart, LightsOut) to track status
+        track_status_list = self._add_synthetic_events(track_status_list, t0_info)
+
+        # Integrate rain events into track status
+        track_status_list = self._integrate_rain_events(track_status_list, weather_df)
+
+        # Sort track status by session_time
+        track_status_list = sorted(track_status_list, key=lambda e: e.session_time if e.session_time is not None else float('inf'))
+
+        # Consolidate discrete events into intervals with start/end times
+        track_status_list, consolidation_report = self._consolidate_track_status_intervals(track_status_list, t0_info)
+
+        # Convert lists to Polars DataFrames for efficient storage and querying
+        track_status_df = pl.DataFrame([
+            {
+                'session_time': event.session_time,
+                'status': event.status,
+                'message': event.message,
+                'scope': event.scope,
+                'sector': event.sector,
+                'driver_num': event.driver_num,
+                'end_time': event.end_time
+            }
+            for event in track_status_list
+        ]) if track_status_list else pl.DataFrame()
+
+        # Sort by session_time to ensure chronological order after consolidation
+        if track_status_df.height > 0:
+            track_status_df = track_status_df.sort('session_time')
+
+        # Wrap DataFrame with consolidation report
+        from f1_replay.models.session import TrackStatusWithReport
+        track_status_with_report = TrackStatusWithReport(track_status_df, consolidation_report)
+
+        race_control_df = pl.DataFrame([
+            {
+                'message': msg.message,
+                'time': msg.time,
+                'session_time': msg.session_time
+            }
+            for msg in race_control_list
+        ]) if race_control_list else pl.DataFrame()
+
+        if track_status_list or race_control_list:
+            print(f"  → Events: {len(track_status_list)} track status intervals ({consolidation_report['summary']['merged_count']} merged), {len(race_control_list)} messages")
 
         return EventsData(
-            track_status=track_status_df,
-            race_control=race_control_df,
-            weather=weather_df
+            track_status=track_status_with_report,
+            race_control=race_control_df
         )
 
     def _extract_track_status(self, f1_session, t0_datetime=None) -> list[TrackStatusEvent]:
@@ -666,6 +1097,8 @@ class SessionProcessor:
             'DOUBLE YELLOW': 'DoubleYellow',
             'GREEN': 'AllClear',
             'CLEAR': 'AllClear',
+            'RED': 'Red',
+            'RED FLAG': 'Red',
             'BLUE': 'Blue',
             'BLACK AND WHITE': 'BlackWhite',
             'BLACK WHITE': 'BlackWhite',
@@ -683,8 +1116,8 @@ class SessionProcessor:
                     try:
                         status_code = str(row.get('Status', ''))
 
-                        # Skip SC/VSC codes - we get better data from race_control_messages
-                        if status_code in ('4', '6', '7'):
+                        # Skip Yellow/Red/SC/VSC codes - we get better data from race_control_messages
+                        if status_code in ('2', '4', '5', '6', '7'):
                             continue
 
                         message = row.get('Message', '')
@@ -694,7 +1127,6 @@ class SessionProcessor:
 
                         # Parse time - timedelta from t0_date, use directly
                         time_value = row.get('Time', None)
-                        raw_time_str = str(time_value) if time_value is not None else None
                         if time_value is not None and hasattr(time_value, 'total_seconds'):
                             session_time = time_value.total_seconds()
                         else:
@@ -704,12 +1136,9 @@ class SessionProcessor:
                             session_time=session_time,
                             status=status,
                             message=str(message) if pd.notna(message) else status,
-                            flag_type="",
                             scope="Track",
-                            sector=0,
-                            driver_num="",
-                            lap=0,
-                            raw_time=raw_time_str
+                            sector=None,
+                            driver_num=""
                         ))
                     except Exception:
                         pass
@@ -734,14 +1163,20 @@ class SessionProcessor:
                     try:
                         flag_type = str(row.get('Flag', '')).upper()
                         message = str(row.get('Message', ''))
+
+                        # Clean up blue flag messages - remove "TIMED AT..." suffix
+                        if 'BLUE FLAG' in message.upper() and 'TIMED AT' in message.upper():
+                            # Find "TIMED AT" and remove everything from that point
+                            timed_at_pos = message.upper().find('TIMED AT')
+                            if timed_at_pos > 0:
+                                message = message[:timed_at_pos].strip()
+
                         scope = str(row.get('Scope', 'Track'))
-                        sector = int(row.get('Sector', 0)) if pd.notna(row.get('Sector')) else 0
+                        sector = int(row.get('Sector')) if pd.notna(row.get('Sector')) else None
                         driver_num = str(row.get('RacingNumber', '')) if pd.notna(row.get('RacingNumber')) else ''
-                        lap = int(row.get('Lap', 0)) if pd.notna(row.get('Lap')) else 0
 
                         # Parse time - absolute timestamp, convert to t0-relative
                         time_value = row.get('Time', None)
-                        raw_time_str = str(time_value) if time_value is not None else None
                         session_time = self._parse_time_to_session_seconds(time_value, None, t0_datetime)
 
                         # Map flag to status
@@ -751,12 +1186,9 @@ class SessionProcessor:
                             session_time=session_time,
                             status=status,
                             message=message,
-                            flag_type=flag_type,
                             scope=scope,
                             sector=sector,
-                            driver_num=driver_num,
-                            lap=lap,
-                            raw_time=raw_time_str
+                            driver_num=driver_num
                         ))
                     except Exception:
                         pass
@@ -773,7 +1205,6 @@ class SessionProcessor:
 
                         # Parse time - absolute timestamp, convert to t0-relative
                         time_value = row.get('Time', None)
-                        raw_time_str = str(time_value) if time_value is not None else None
                         session_time = self._parse_time_to_session_seconds(time_value, None, t0_datetime)
 
                         # Determine SC/VSC type from message
@@ -794,15 +1225,54 @@ class SessionProcessor:
                             session_time=session_time,
                             status=status,
                             message=message,
-                            flag_type="",
                             scope="Track",
-                            sector=0,
-                            driver_num="",
-                            lap=0,
-                            raw_time=raw_time_str
+                            sector=None,
+                            driver_num=""
                         ))
                     except Exception:
                         pass
+
+                # =====================================================================
+                # 4. Extract Aborted Start / Formation Lap from race_control_messages
+                # =====================================================================
+                # These are in "Other" category
+                other_messages = messages_df[messages_df['Category'] == 'Other']
+
+                for _, row in other_messages.iterrows():
+                    try:
+                        message = str(row.get('Message', ''))
+                        message_upper = message.upper()
+
+                        # Check for ABORTED START
+                        if 'ABORTED START' in message_upper:
+                            time_value = row.get('Time', None)
+                            session_time = self._parse_time_to_session_seconds(time_value, None, t0_datetime)
+
+                            events.append(TrackStatusEvent(
+                                session_time=session_time,
+                                status='AbortedStart',
+                                message=message,
+                                scope="Track",
+                                sector=None,
+                                driver_num=""
+                            ))
+
+                        # Check for FORMATION LAP
+                        elif 'FORMATION LAP' in message_upper:
+                            time_value = row.get('Time', None)
+                            session_time = self._parse_time_to_session_seconds(time_value, None, t0_datetime)
+
+                            events.append(TrackStatusEvent(
+                                session_time=session_time,
+                                status='FormationLap',
+                                message=message,
+                                scope="Track",
+                                sector=None,
+                                driver_num=""
+                            ))
+                    except Exception:
+                        pass
+
         except Exception:
             pass
 
@@ -813,7 +1283,7 @@ class SessionProcessor:
         # FastF1 sometimes includes track_status data from after the race ends
         chequered_time = None
         for e in events:
-            if e.status == 'Chequered' or e.flag_type == 'CHEQUERED':
+            if e.status == 'Chequered':
                 chequered_time = e.session_time
                 break
 
@@ -1060,9 +1530,7 @@ class SessionProcessor:
                                 except Exception:
                                     pass
 
-                            fastest_laps.append(FastestLapEvent(
-                                lap=lap_num,
-                                driver=driver,
+                            fastest_laps.append(FastestLapEvent(                                driver=driver,
                                 time=lap_time_seconds,
                                 lap_time_ms=int(lap_time_seconds * 1000),
                                 session_time=session_time
@@ -1167,9 +1635,7 @@ class SessionProcessor:
                             session_end_time = float('nan')
                         # Add final standings snapshot at session end
                         position_history.append(PositionSnapshot(
-                            time=session_end_time,
-                            lap=None,
-                            standings=standings
+                            time=session_end_time,                            standings=standings
                         ))
 
                 except Exception:
