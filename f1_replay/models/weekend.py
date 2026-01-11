@@ -464,36 +464,36 @@ class F1Weekend(F1DataMixin):
         return self.event.round_number
 
     @property
-    def event_name(self) -> str:
+    def name(self) -> str:
         return self.event.name
 
     @property
-    def location(self) -> str:
-        return self.event.location
-
-    @property
-    def country(self) -> str:
-        return self.event.country
+    def official_name(self) -> str:
+        return self.event.official_name
 
     @property
     def circuit_name(self) -> str:
         return self.event.circuit_name
 
     @property
-    def timezone(self) -> str:
-        return self.event.timezone
+    def country(self) -> str:
+        return self.event.country
 
     @property
-    def event_date(self) -> str:
-        return self.event.end_date
+    def timezone_offset(self) -> str:
+        return self.event.timezone_offset
 
     @property
-    def event_start(self) -> str:
+    def start_date(self) -> str:
         return self.event.start_date
 
     @property
-    def available_sessions(self) -> List[str]:
-        return self.event.available_sessions
+    def end_date(self) -> str:
+        return self.event.end_date
+
+    @property
+    def format(self) -> str:
+        return self.event.format
 
     @property
     def session_schedule(self) -> Dict[str, str]:

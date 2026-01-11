@@ -82,12 +82,12 @@ def cmd_seasons(args):
         if season is None:
             print(f"Season {args.year} not found")
             return
-        print(f"\n{args.year} Season ({season.total_rounds} rounds):\n")
-        for r in season.rounds:
-            print(f"  {r.round_number:2d}. {r.event_name} ({r.location})")
+        print(f"\n{args.year} Season ({len(season)} rounds):\n")
+        for r in season:
+            print(f"  {r.round_number:2d}. {r.name} ({r.circuit_name})")
     else:
         # Show all years
-        years = sorted(seasons.years.keys())
+        years = sorted(seasons.keys())
         print(f"\nAvailable seasons: {', '.join(map(str, years))}")
         print("\nUse 'f1-replay seasons <year>' for race list")
 

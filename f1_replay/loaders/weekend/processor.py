@@ -45,6 +45,16 @@ LOCATION_ALIASES = [
 ]
 
 
+def extract_timezone_offset(date_str: str) -> str:
+    """Extract timezone offset from ISO datetime string (e.g., '+02:00' from '2025-09-05T13:30:00+02:00')."""
+    import re
+    if date_str:
+        match = re.search(r'([+-]\d{2}:\d{2})$', date_str)
+        if match:
+            return match.group(1)
+    return ""
+
+
 def get_manual_rotation(location: str) -> Optional[float]:
     """Get manual rotation override for a location, checking aliases."""
     # Normalize: lowercase, replace spaces with underscores
@@ -138,7 +148,7 @@ class WeekendProcessor:
         rotation_deg = self._get_rotation(year, round_num_or_name, test_number, circuit_name)
 
         # Skip extraction for testing events (use historical data instead)
-        if event_info and event_info.event_format == 'testing':
+        if event_info and event_info.format == 'testing':
             print(f"  ⚠ Testing event - creating placeholder (will use historical track)")
             return self._build_placeholder_circuit(circuit_name, rotation_deg)
 
@@ -233,6 +243,10 @@ class WeekendProcessor:
             # Extract track using light telemetry
             track_data = LightTelemetryBuilder.extract_track_geometry(session, winner)
 
+            # Extract marshal sectors by projecting X,Y onto track
+            if track_data is not None:
+                track_data = self._add_marshal_sectors(session, track_data)
+
             return track_data
 
         except Exception as e:
@@ -251,6 +265,81 @@ class WeekendProcessor:
             pass
         return None
 
+    def _add_marshal_sectors(self, f1_session, track_data: TrackData) -> TrackData:
+        """
+        Extract marshal sectors from circuit_info by projecting X,Y onto track.
+
+        Uses our internal track distance (cumulative Euclidean distance) for consistency.
+        """
+        try:
+            circuit_info = f1_session.get_circuit_info()
+            if circuit_info is None or not hasattr(circuit_info, 'marshal_sectors'):
+                return track_data
+
+            marshal_df = circuit_info.marshal_sectors
+            if marshal_df is None or len(marshal_df) == 0:
+                return track_data
+
+            track_x = track_data.track_x
+            track_y = track_data.track_y
+            track_dist = track_data.track_distance  # decimeters
+            lap_distance_dm = track_data.lap_distance
+
+            # Marshal sectors have X, Y coordinates (decimeters)
+            sector_nums = marshal_df['Number'].values.astype(np.int32)
+            sector_x = marshal_df['X'].values.astype(np.float32)
+            sector_y = marshal_df['Y'].values.astype(np.float32)
+
+            # Project each sector boundary onto track (find closest track point)
+            dist_sq = (sector_x[:, None] - track_x[None, :])**2 + (sector_y[:, None] - track_y[None, :])**2
+            closest_indices = np.argmin(dist_sq, axis=1)
+
+            # Get track distances at closest points (convert to meters)
+            dist_meters = track_dist[closest_indices] / 10.0
+
+            # Build (sector_num, dist) pairs and sort by distance
+            sector_distances = list(zip(sector_nums, dist_meters))
+            sector_distances.sort(key=lambda x: x[1])
+
+            # Build sector ranges (from current to next boundary)
+            marshal_sectors = []
+            lap_distance_m = lap_distance_dm / 10.0
+
+            for i, (sector_num, from_dist) in enumerate(sector_distances):
+                if i + 1 < len(sector_distances):
+                    to_dist = sector_distances[i + 1][1]
+                else:
+                    # Last sector wraps to first
+                    to_dist = lap_distance_m + sector_distances[0][1]
+
+                marshal_sectors.append((sector_num, from_dist, to_dist))
+
+            if marshal_sectors:
+                print(f"    ✓ Marshal sectors: {len(marshal_sectors)}")
+
+            # Return new TrackData with marshal_sectors
+            return TrackData(
+                track_x=track_data.track_x,
+                track_y=track_data.track_y,
+                track_distance=track_data.track_distance,
+                lap_distance=track_data.lap_distance,
+                pit_x=track_data.pit_x,
+                pit_y=track_data.pit_y,
+                pit_distance=track_data.pit_distance,
+                pit_length=track_data.pit_length,
+                pit_entry_distance=track_data.pit_entry_distance,
+                pit_exit_distance=track_data.pit_exit_distance,
+                marshal_sectors=marshal_sectors,
+                speed=track_data.speed,
+                throttle=track_data.throttle,
+                brake=track_data.brake,
+                track_z=track_data.track_z
+            )
+
+        except Exception as e:
+            print(f"    ⚠ Could not extract marshal sectors: {e}")
+            return track_data
+
     def _build_complete_circuit(self, track_data: TrackData, circuit_name: str,
                                 rotation_deg: float) -> CircuitData:
         """Build CircuitData from extracted TrackData."""
@@ -258,13 +347,23 @@ class WeekendProcessor:
         circuit_length_meters = track_data.lap_distance / 10.0
         distance_meters = track_data.track_distance / 10.0 if track_data.track_distance is not None else None
 
+        # Convert marshal sector tuples to MarshalSector objects
+        marshal_sectors = []
+        if track_data.marshal_sectors:
+            for sector_num, from_dist, to_dist in track_data.marshal_sectors:
+                marshal_sectors.append(MarshalSector(
+                    sector=int(sector_num),
+                    from_dist=float(from_dist),
+                    to_dist=float(to_dist)
+                ))
+
         # Build TrackGeometry
         track = TrackGeometry(
             x=track_data.track_x,
             y=track_data.track_y,
             distance=distance_meters,
             lap_distance=circuit_length_meters,
-            marshal_sectors=[],  # Populated later if available
+            marshal_sectors=marshal_sectors,
             speed=track_data.speed,
             throttle=track_data.throttle,
             brake=track_data.brake,
@@ -388,16 +487,24 @@ class WeekendProcessor:
             if first_date:
                 event_start = first_date.split('T')[0][:10]
 
+        # Extract timezone offset from first session's datetime string
+        timezone = ""
+        for s in sessions:
+            if s.date:
+                timezone = extract_timezone_offset(s.date)
+                if timezone:
+                    break
+
         return EventInfo(
             name=event.get('EventName', ''),
-            location=event.get('Location', ''),
+            official_name=event.get('OfficialEventName', ''),
+            circuit_name=event.get('Location', ''),
             country=event.get('Country', ''),
-            circuit_name=event.get('Circuit', ''),
             year=year,
             round_number=round_num,
             start_date=event_start,
             end_date=str(event.get('EventDate', '')).split(' ')[0],
             sessions=sessions,
-            timezone=event.get('TimeZone', 'UTC'),
-            event_format=str(event.get('EventFormat', 'conventional')),
+            timezone_offset=timezone,
+            format=str(event.get('EventFormat', 'conventional')),
         )

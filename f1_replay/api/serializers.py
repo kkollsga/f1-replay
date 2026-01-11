@@ -17,6 +17,7 @@ def to_json_safe(obj: Any) -> Any:
 
     Handles:
     - Dataclass objects → dicts
+    - TrackStatusWithReport → underlying DataFrame
     - Polars DataFrames → list of dicts
     - NumPy arrays → lists
     - NumPy/Python scalar types → Python primitives
@@ -33,6 +34,10 @@ def to_json_safe(obj: Any) -> Any:
     # Dataclass objects - convert to dict then recursively process
     if is_dataclass(obj) and not isinstance(obj, type):
         return to_json_safe(asdict(obj))
+
+    # TrackStatusWithReport wrapper - extract underlying DataFrame
+    if hasattr(obj, '_df') and isinstance(getattr(obj, '_df', None), pl.DataFrame):
+        return to_json_safe(obj._df)
 
     # Polars DataFrame - convert to dicts then recursively process
     if isinstance(obj, pl.DataFrame):

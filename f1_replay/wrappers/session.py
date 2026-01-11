@@ -143,6 +143,11 @@ class Session:
         return self._data.events.race_control
 
     @property
+    def weather(self) -> pl.DataFrame:
+        """Weather data (empty - weather is integrated into track_status as rain events)."""
+        return pl.DataFrame()
+
+    @property
     def rain_events(self) -> pl.DataFrame:
         """Extract rain events from track_status."""
         track_status = self._data.events.track_status

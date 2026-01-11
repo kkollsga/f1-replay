@@ -209,7 +209,7 @@ class Manager:
 
         # Calculate max widths for alignment (with GP shortening)
         max_name = max(len(e.name.replace('Grand Prix', 'GP')) for e in season)
-        max_loc = max(len(e.location) for e in season)
+        max_loc = max(len(e.circuit_name) for e in season)
 
         # Header
         print(f"\n  F1 SEASON {year}")
@@ -219,8 +219,8 @@ class Manager:
         for event in season:
             date_str = self._format_date_range(event.start_date, event.end_date)
             name = event.name.replace('Grand Prix', 'GP')
-            location = event.location
-            sessions = event.available_sessions
+            location = event.circuit_name
+            sessions = list(event.session_schedule.keys())
 
             # Convert to short codes
             short_sessions = [self.SESSION_SHORT.get(s, s) for s in sessions]
@@ -228,7 +228,7 @@ class Manager:
 
             # Round number (testing events show as T01, T02, etc.)
             round_num = event.round_number
-            is_testing = event.event_format == 'testing'
+            is_testing = event.format == 'testing'
             if is_testing:
                 testing_count += 1
                 round_str = f"T{testing_count:02d}"
@@ -542,8 +542,8 @@ class Manager:
             if event.name.lower() == search_name:
                 return event
 
-            # Check location
-            if event.location.lower() == search_name:
+            # Check circuit_name (location)
+            if event.circuit_name.lower() == search_name:
                 return event
 
             # Check partial match (for convenience)
@@ -570,7 +570,7 @@ class Manager:
 
         testing_count = 0
         for event in season:
-            if event.event_format == 'testing':
+            if event.format == 'testing':
                 testing_count += 1
                 if testing_count == testing_num:
                     return event
@@ -615,6 +615,10 @@ class Manager:
         Returns:
             self (for method chaining)
         """
+        # Force refresh seasons if force_update (applies to all tiers)
+        if force_update:
+            self.get_seasons(force_update=True)
+
         # Handle testing events
         if testing:
             # Parse testing number
@@ -703,13 +707,13 @@ class Manager:
         """
         track_data = None
         historical = None
-        is_testing = event.event_format == 'testing'
+        is_testing = event.format == 'testing'
 
         if is_testing:
             # Testing events: always use historical race data for track geometry
-            print(f"  → Testing event - searching for historical race at {event.location}...")
+            print(f"  → Testing event - searching for historical race at {event.circuit_name}...")
             historical = self._track_finder.find_historical_race(
-                event.location, year,
+                event.circuit_name, year,
                 circuit=event.circuit_name
             )
         else:
@@ -730,10 +734,10 @@ class Manager:
                     )
             else:
                 # Future race - try to get track from historical data
-                circuit_name = event.circuit_name or event.location
+                circuit_name = event.circuit_name
                 print(f"  → Future race - searching historical data for {circuit_name}...")
                 historical = self._track_finder.find_historical_race(
-                    event.location, year,
+                    event.circuit_name, year,
                     circuit=event.circuit_name
                 )
 
@@ -761,8 +765,7 @@ class Manager:
                         pass
 
         if track_data is None and not is_testing:
-            circuit_name = event.circuit_name or event.location
-            print(f"  ✗ No historical data for '{circuit_name}' - new circuit on calendar")
+            print(f"  ✗ No historical data for '{event.circuit_name}' - new circuit on calendar")
 
         if track_data:
             from f1_replay.models.event import get_location_dir
@@ -801,7 +804,7 @@ class Manager:
             try:
                 event_dt = datetime.strptime(str(event_date)[:10], '%Y-%m-%d')
                 if event_dt > datetime.now():
-                    print(f"✗ Session not yet available - {self._weekend.event_name} is scheduled for {event_date[:10]}")
+                    print(f"✗ Session not yet available - {self._weekend.name} is scheduled for {event_date[:10]}")
                     return None
             except (ValueError, TypeError):
                 pass
@@ -872,7 +875,7 @@ class Manager:
             try:
                 event_dt = datetime.strptime(str(event_date)[:10], '%Y-%m-%d')
                 if event_dt > datetime.now():
-                    print(f"✗ Session not yet available - {self._weekend.event_name} is scheduled for {event_date[:10]}")
+                    print(f"✗ Session not yet available - {self._weekend.name} is scheduled for {event_date[:10]}")
                     self._session = None
                     return self
             except (ValueError, TypeError):
@@ -893,6 +896,26 @@ class Manager:
         session = create_session(data=result.data, weekend=self._weekend, raw_session=result.raw_session)
         self._weekend.set_session(session_type, session)
         self._session = session  # Keep shortcut for backward compatibility
+
+        # Print tier 3 session summary
+        print(f"\n{'='*60}")
+        print(f"TIER 3 SESSION LOADED: {year} R{round_num} {session_type}")
+        print(f"{'='*60}")
+        print(f"Metadata:")
+        print(f"  session_type: {session.session_type}")
+        print(f"  event_name: {session.event_name}")
+        print(f"  drivers: {session.drivers}")
+        print(f"  track_length: {session.track_length}")
+        print(f"  total_laps: {session.total_laps}")
+        print(f"  t0_utc: {session.t0_utc}")
+        print(f"Telemetry: {len(session.telemetry)} drivers")
+        for drv, df in list(session.telemetry.items())[:3]:
+            print(f"  {drv}: {len(df)} rows, columns={list(df.columns)[:8]}...")
+        print(f"Events:")
+        print(f"  track_status: {len(session.track_status) if session.track_status is not None else 0} events")
+        print(f"  race_control: {len(session.race_control) if session.race_control is not None else 0} events")
+        print(f"{'='*60}\n")
+
         return self
 
     def load_race(self, year: Optional[int] = None, round_num_or_name: Optional[Union[int, str]] = None,

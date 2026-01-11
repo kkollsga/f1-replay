@@ -31,33 +31,28 @@ class EventInfo:
 
     Attributes:
         name: Event name, e.g., "Monaco Grand Prix"
-        location: Circuit location, e.g., "Monte Carlo"
+        official_name: Full sponsor name, e.g., "FORMULA 1 CRYPTO.COM MONACO GRAND PRIX 2025"
+        circuit_name: Circuit location, e.g., "Monte Carlo"
         country: Country, e.g., "Monaco"
-        circuit_name: Official circuit name, e.g., "Circuit de Monaco"
         year: Season year
         round_number: Round number in season
         start_date: First session date (ISO format)
         end_date: Race date (ISO format)
         sessions: List of SessionInfo with names and datetimes
-        timezone: Circuit timezone, e.g., "Europe/Monaco"
-        event_format: "conventional" or "sprint_qualifying"
+        timezone_offset: UTC offset, e.g., "+02:00"
+        format: "conventional" or "sprint_qualifying"
     """
     name: str
-    location: str
-    country: str
+    official_name: str
     circuit_name: str
+    country: str
     year: int
     round_number: int
     start_date: str  # ISO date "2024-05-23"
     end_date: str    # ISO date "2024-05-26"
     sessions: List[SessionInfo] = field(default_factory=list)
-    timezone: str = ""
-    event_format: str = "conventional"
-
-    @property
-    def available_sessions(self) -> List[str]:
-        """List of session names."""
-        return [s.name for s in self.sessions]
+    timezone_offset: str = ""
+    format: str = "conventional"
 
     @property
     def session_schedule(self) -> Dict[str, str]:
@@ -72,7 +67,7 @@ class EventInfo:
         return None
 
     def __repr__(self) -> str:
-        sessions = ", ".join(self.available_sessions)
+        sessions = ", ".join(self.session_schedule.keys())
         return f"EventInfo({self.year} R{self.round_number}: {self.name}, sessions=[{sessions}])"
 
 
@@ -97,8 +92,8 @@ def get_location_dir(event: EventInfo) -> str:
     """
     Get location directory name for an event.
 
-    Format: "{round:02d}_{location}"
+    Format: "{round:02d}_{circuit_name}"
     Example: "01_Bahrain", "21_Abu_Dhabi"
     """
-    location_safe = event.location.replace(' ', '_').replace('-', '_')
+    location_safe = event.circuit_name.replace(' ', '_').replace('-', '_')
     return f"{event.round_number:02d}_{location_safe}"

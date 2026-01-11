@@ -28,8 +28,9 @@ except ImportError:
 def fast_jsonify(data: dict, status: int = 200) -> Response:
     """Fast JSON response using orjson if available."""
     if HAS_ORJSON:
+        # OPT_SERIALIZE_NUMPY handles numpy int64/float64 natively (fastest)
         return Response(
-            orjson.dumps(data),
+            orjson.dumps(data, option=orjson.OPT_SERIALIZE_NUMPY),
             status=status,
             mimetype='application/json'
         )
@@ -38,15 +39,41 @@ def fast_jsonify(data: dict, status: int = 200) -> Response:
 
 from f1_replay.managers import DataLoader
 from f1_replay.wrappers import RaceWeekend, Session, create_session
-from f1_replay.api.serializers import (
-    to_json_safe,
-    serialize_telemetry,
-    serialize_track_geometry,
-    serialize_events,
-    serialize_rain_events,
-    serialize_position_history,
-    serialize_fastest_laps,
-)
+from f1_replay.api.serializers import to_json_safe, serialize_telemetry
+
+
+def _get_circuit_info(year: int, round_num: int) -> Optional[dict]:
+    """
+    Load circuit corner info from FastF1.
+
+    Returns dict with corners list or None if unavailable.
+    """
+    try:
+        import fastf1
+        session = fastf1.get_session(year, round_num, 'R')
+        session.load(telemetry=False, laps=True, weather=False, messages=False)
+
+        result = {'corners': []}
+
+        # Get circuit info
+        ci = session.get_circuit_info()
+
+        # Extract corners with positions
+        if hasattr(ci, 'corners') and ci.corners is not None:
+            for _, row in ci.corners.iterrows():
+                result['corners'].append({
+                    'number': int(row.get('Number', 0)),
+                    'letter': row.get('Letter', ''),
+                    'x': float(row.get('X', 0)),
+                    'y': float(row.get('Y', 0)),
+                    'angle': float(row.get('Angle', 0)),
+                    'distance': float(row.get('Distance', 0)) if row.get('Distance') is not None and not (isinstance(row.get('Distance'), float) and row.get('Distance') != row.get('Distance')) else None
+                })
+
+        return result
+    except Exception as e:
+        print(f"Could not load circuit info: {e}")
+        return None
 
 
 def _get_scheduled_session_info(data_loader: DataLoader, year: int, round_num: int, session_type: str) -> Optional[dict]:
@@ -110,15 +137,15 @@ def _get_scheduled_session_info(data_loader: DataLoader, year: int, round_num: i
         # Get event name from seasons catalog
         seasons = data_loader.load_seasons()
         event_name = ""
-        if seasons and year in seasons.years:
-            for r in seasons.years[year].rounds:
+        if seasons and year in seasons:
+            for r in seasons[year]:
                 if r.round_number == round_num:
-                    event_name = r.event_name
+                    event_name = r.name
                     break
 
         return {
             'scheduled': True,
-            'event_name': event_name or event.get('EventName', ''),
+            'name': event_name or event.get('EventName', ''),
             'session_type': session_type,
             'scheduled_date': session_date.isoformat(),
             'scheduled_date_formatted': formatted_date,
@@ -201,23 +228,12 @@ def create_app(data_loader: DataLoader, current_session: Optional[Session] = Non
                 return jsonify({'error': 'Could not load seasons'}), 500
 
             # Build response - seasons is Dict[int, List[EventInfo]]
+            # Direct serialization of EventInfo dataclass
             seasons_dict = {}
             for year, events in seasons.items():
-                rounds = []
-                for event in events:
-                    rounds.append({
-                        'round': event.round_number,
-                        'event_name': event.name,
-                        'location': event.location,
-                        'country': event.country,
-                        'circuit_name': event.circuit_name,
-                        'date': event.end_date,
-                        'available_sessions': event.available_sessions
-                    })
-
                 seasons_dict[str(year)] = {
                     'total_rounds': len(events),
-                    'rounds': rounds
+                    'rounds': [to_json_safe(event) for event in events]
                 }
 
             return jsonify({
@@ -267,43 +283,18 @@ def create_app(data_loader: DataLoader, current_session: Optional[Session] = Non
                 # Cache for future requests
                 app.config['WEEKEND_CACHE'][cache_key] = weekend_data
 
-            # Use event property (EventInfo) for metadata
-            event_info = weekend_data.event
-
-            # Build response
-            # Safely serialize track geometry (may be None for future races)
-            track_geom = weekend_data.circuit.track if weekend_data.circuit else None
-            pit_lane_geom = weekend_data.circuit.pit_lane if weekend_data.circuit else None
+            # Direct serialization of F1Weekend (EventInfo + CircuitData)
+            # Check if we need to load additional circuit info (corners)
+            corners = []
+            if weekend_data.circuit.corners == 0 if weekend_data.circuit else True:
+                circuit_info = _get_circuit_info(year, round_num)
+                if circuit_info:
+                    corners = circuit_info.get('corners', [])
 
             return fast_jsonify({
-                'metadata': {
-                    'year': event_info.year,
-                    'round': event_info.round_number,
-                    'event_name': event_info.name,
-                    'location': event_info.location,
-                    'country': event_info.country,
-                    'circuit_name': event_info.circuit_name,
-                    'timezone': event_info.timezone,
-                    'event_date': event_info.end_date,
-                    'available_sessions': event_info.available_sessions
-                },
-                'circuit': {
-                    'track': serialize_track_geometry(track_geom) if track_geom and track_geom.x is not None else None,
-                    'pit_lane': serialize_track_geometry(pit_lane_geom) if pit_lane_geom else None,
-                    'circuit_length': weekend_data.circuit.circuit_length if weekend_data.circuit else 0,
-                    'rotation': weekend_data.circuit.rotation if weekend_data.circuit else 0,
-                    'corners': weekend_data.circuit.corners if weekend_data.circuit else 0,
-                    'track_segments': [
-                        {
-                            'name': seg.name,
-                            'start_distance': seg.start_distance,
-                            'end_distance': seg.end_distance,
-                            'segment_type': seg.segment_type,
-                            'metadata': seg.metadata
-                        }
-                        for seg in (weekend_data.circuit.track_segments if weekend_data.circuit else [])
-                    ]
-                }
+                'event': to_json_safe(weekend_data.event),
+                'circuit': to_json_safe(weekend_data.circuit),
+                'corners': corners  # Additional corner data from FastF1
             })
 
         except Exception as e:
@@ -379,48 +370,42 @@ def create_app(data_loader: DataLoader, current_session: Optional[Session] = Non
                 # Cache for future requests
                 app.config['SESSION_CACHE'][cache_key] = session
 
+                # Print tier 3 session summary
+                print(f"\n{'='*60}")
+                print(f"TIER 3 SESSION DATA LOADED: {year} R{round_num} {session_type}")
+                print(f"{'='*60}")
+                print(f"Metadata:")
+                print(f"  session_type: {session.session_type}")
+                print(f"  year: {session.year}")
+                print(f"  round_number: {session.round_number}")
+                print(f"  event_name: {session.event_name}")
+                print(f"  drivers: {session.drivers}")
+                print(f"  track_length: {session.track_length}")
+                print(f"  total_laps: {session.total_laps}")
+                print(f"  t0_utc: {session.t0_utc}")
+                print(f"  start_time_local: {session.start_time_local}")
+                print(f"Telemetry: {len(session.telemetry)} drivers")
+                for drv, df in list(session.telemetry.items())[:3]:
+                    print(f"  {drv}: {len(df)} rows, columns={list(df.columns)[:8]}...")
+                print(f"Events:")
+                print(f"  track_status: {len(session.track_status) if session.track_status is not None else 0} events")
+                print(f"  race_control: {len(session.race_control) if session.race_control is not None else 0} events")
+                print(f"  weather: {len(session.weather) if session.weather is not None else 0} events")
+                print(f"{'='*60}\n")
+
             # Get optional telemetry fields from query params
             telemetry_fields = None
             if 'telemetry_fields' in request.args:
                 telemetry_fields = request.args.get('telemetry_fields').split(',')
 
-            # Get attributes that only exist on certain session types
-            dnf_drivers = getattr(session, 'dnf_drivers', [])
-            fastest_laps = getattr(session, 'fastest_laps', [])
-            position_history = getattr(session, 'position_history', [])
-            order = getattr(session, 'order', None)
-
-            # Build response
+            # Direct serialization of SessionData dataclass
+            # Telemetry uses column-format for efficiency (via serialize_telemetry)
+            session_data = session._data
             return fast_jsonify({
-                'metadata': {
-                    'session_type': session.session_type,
-                    'year': session.year,
-                    'round': session.round_number,
-                    'event_name': session.event_name,
-                    'drivers': session.drivers,
-                    'driver_info': session.driver_info,
-                    'dnf_drivers': dnf_drivers,
-                    'track_length': session.track_length,
-                    'total_laps': session.total_laps,
-                    't0': {
-                        'utc': session.t0_utc,
-                        'timezone': session.t0_timezone,
-                        'lights_out_offset': session.lights_out_offset,
-                    } if session.t0_utc else None,
-                    'start_time_local': session.start_time_local
-                },
-                'telemetry': serialize_telemetry(session.telemetry, fields=telemetry_fields),
-                'events': {
-                    'track_status': to_json_safe(session.track_status),
-                    'race_control': to_json_safe(session.race_control),
-                    'weather': to_json_safe(session.weather),
-                },
-                'results': {
-                    'fastest_laps': serialize_fastest_laps(fastest_laps),
-                    'position_history': serialize_position_history(position_history)
-                },
-                'order': to_json_safe(order) if order is not None else [],
-                'rain_events': serialize_rain_events(session.rain_events)
+                'metadata': to_json_safe(session_data.metadata),
+                'telemetry': serialize_telemetry(session_data.telemetry, fields=telemetry_fields),
+                'events': to_json_safe(session_data.events),
+                'results': to_json_safe(session_data.results),
             })
 
         except Exception as e:

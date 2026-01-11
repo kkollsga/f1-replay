@@ -58,7 +58,7 @@ def plot_weekend(
 
     # Extract data from event
     year = event.year
-    timezone = event.timezone or 'Local'
+    timezone = event.timezone_offset or 'Local'
 
     # Colors
     BG_COLOR = '#1a1a2e'
@@ -541,7 +541,7 @@ def plot_weekend(
 
     length_str = f"{circuit.circuit_length:,.0f}".replace(',', ' ')
     date_str = _format_date_range(event.start_date, event.end_date)
-    subtitle = f"{event.location}  |  {length_str} m"
+    subtitle = f"{event.circuit_name}  |  {length_str} m"
     if date_str:
         subtitle += f"  |  {date_str}"
     fig.text(0.04, 0.915, subtitle,

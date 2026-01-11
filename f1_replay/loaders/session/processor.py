@@ -308,6 +308,15 @@ class SessionProcessor:
             # Add track_distance, race_distance, and update lap_number
             telemetry = TelemetryBuilder._add_track_distance_all(telemetry, temp_track_data, session_timing_compat)
             print(f"  ✓ Track distance added from weekend track")
+        else:
+            # No track geometry available - add placeholder columns for status update
+            print(f"  ⚠ No weekend track geometry, adding placeholder distance columns")
+            for driver, tel in telemetry.items():
+                n_rows = len(tel)
+                telemetry[driver] = tel.with_columns([
+                    pl.lit(0.0).cast(pl.Float32).alias('track_distance'),
+                    pl.lit(0.0).cast(pl.Float32).alias('race_distance'),
+                ])
 
         # STEP 6.5: Update status column (ALWAYS, regardless of track geometry)
         # Extract warmup intervals from track_status

@@ -1415,7 +1415,8 @@
                 } else {
                     logMsg += ' → CLEAR';
                 }
-                console.log(logMsg);
+                // Debug logging disabled for cleaner console
+                // console.log(logMsg);
             }
         }
 
@@ -1492,7 +1493,8 @@
             }
 
             logMessage(time, message) {
-                console.log(`[RACE CONTROL ${time.toFixed(1)}s] ${message}`);
+                // Debug logging disabled for cleaner console
+                // console.log(`[RACE CONTROL ${time.toFixed(1)}s] ${message}`);
             }
 
             getCurrentMessages() {
@@ -1528,6 +1530,12 @@
                 this.pitLaneData = null;
                 this.drivers = [];
                 this.rainEvents = [];
+
+                // Tier loading state (for independent error handling)
+                this.hasTrackData = false;      // Tier 2 loaded successfully
+                this.hasSessionData = false;    // Tier 3 loaded successfully
+                this.tier2Error = null;         // Tier 2 error message
+                this.tier3Error = null;         // Tier 3 error message
                 this.telemetryIndexCache = {};  // Cache last index for each driver
                 this.previousPositions = null;  // Cache positions for comparison
                 this.previousChaseMode = null;  // Track previous chase mode for styling updates
@@ -1749,9 +1757,10 @@
                 try {
                     const resp = await fetch('/api/seasons');
                     this.seasonsData = await resp.json();
+                    console.log('TIER 1 data received:', this.seasonsData);
                     this.populateSelectors();
                 } catch (e) {
-                    console.error('Failed to load seasons:', e);
+                    console.error('TIER 1 error:', e);
                 }
             }
 
@@ -1872,19 +1881,31 @@
                 }
             }
 
-            async loadData() {
+            // Tier 2: Load weekend/circuit data independently
+            async loadWeekend() {
                 try {
-                    console.log(`Loading race ${YEAR} round ${ROUND}...`);
+                    const resp = await fetch(`/api/weekend/${YEAR}/${ROUND}`);
+                    if (!resp.ok) throw new Error(`API returned ${resp.status}`);
+                    this.weekendData = await resp.json();
+                    console.log('TIER 2 data received:', this.weekendData);
+                    this.initializeTrack();
+                    this.hasTrackData = true;
+                    this.render();  // Show track immediately
+                } catch (e) {
+                    console.error('TIER 2 error:', e.message);
+                    this.tier2Error = e.message;
+                    this.showTrackError();
+                }
+            }
 
-                    // Fetch weekend and session data in parallel
-                    const telemetryFields = ['session_time', 'lap_number', 'x', 'y', 'track_distance', 'race_distance', 'position', 'interval', 'race_status', 'compound', 'tyre_life', 'speed'];
-                    const [weekendResp, sessionResp] = await Promise.all([
-                        fetch(`/api/weekend/${YEAR}/${ROUND}`),
-                        fetch(`/api/session/${YEAR}/${ROUND}/${SESSION_TYPE}?telemetry_fields=${telemetryFields.join(',')}`)
-                    ]);
-
-                    this.weekendData = await weekendResp.json();
-                    this.sessionData = await sessionResp.json();
+            // Tier 3: Load session/telemetry data independently
+            async loadSession() {
+                try {
+                    const telemetryFields = ['session_time', 'lap_number', 'x', 'y', 'track_distance', 'race_distance', 'position', 'interval', 'status', 'compound', 'tyre_life', 'speed'];
+                    const resp = await fetch(`/api/session/${YEAR}/${ROUND}/${SESSION_TYPE}?telemetry_fields=${telemetryFields.join(',')}`);
+                    if (!resp.ok) throw new Error(`API returned ${resp.status}`);
+                    this.sessionData = await resp.json();
+                    console.log('TIER 3 data received:', this.sessionData);
 
                     // Check if this is a future scheduled race
                     if (this.sessionData.scheduled) {
@@ -1892,17 +1913,26 @@
                         return;
                     }
 
-                    this.initializeFromData();
-                    this.render();
+                    this.initializeSession();
+                    this.hasSessionData = true;
 
-                    // Auto-play on load
+                    // Auto-play on session load
                     this.isPlaying = true;
                     this.updatePlayPauseButton();
-                    console.log('Race auto-playing...');
+                    this.render();
                 } catch (e) {
-                    console.error('Failed to load data:', e);
-                    alert('Failed to load race data: ' + e.message);
+                    console.error('TIER 3 error:', e.message);
+                    this.tier3Error = e.message;
+                    this.showSessionError();
                 }
+            }
+
+            // Load both tiers in parallel but with independent error handling
+            async loadData() {
+                await Promise.all([
+                    this.loadWeekend(),
+                    this.loadSession()
+                ]);
             }
 
             showScheduledMessage(scheduledData) {
@@ -1985,19 +2015,88 @@
                 document.head.appendChild(style);
             }
 
-            initializeFromData() {
-                // Track (include distance for sector-based coloring)
+            // Display error when Tier 2 (track/weekend) fails to load
+            showTrackError() {
+                const width = this.canvas.width / (window.devicePixelRatio || 1);
+                const height = this.canvas.height / (window.devicePixelRatio || 1);
+
+                this.ctx.fillStyle = '#000';
+                this.ctx.fillRect(0, 0, width, height);
+                this.ctx.fillStyle = '#FF4444';
+                this.ctx.font = 'bold 18px Arial';
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+                this.ctx.fillText('Failed to load track', width / 2, height / 2 - 10);
+                this.ctx.font = '14px Arial';
+                this.ctx.fillStyle = '#888';
+                this.ctx.fillText(this.tier2Error || 'Unknown error', width / 2, height / 2 + 15);
+            }
+
+            // Display error when Tier 3 (session) fails to load - track still visible
+            showSessionError() {
+                // Update timer display to show error state
+                const timerEl = document.getElementById('raceTimer');
+                if (timerEl) {
+                    timerEl.textContent = '--:--:--';
+                    timerEl.style.opacity = '0.5';
+                }
+
+                // Disable play controls
+                const playBtn = document.getElementById('playPauseBtn');
+                if (playBtn) playBtn.disabled = true;
+
+                // Show message in standings area
+                const standings = document.getElementById('standings');
+                if (standings) {
+                    standings.innerHTML = '<div style="padding: 20px; color: #888; text-align: center; font-size: 14px;">Session data unavailable</div>';
+                }
+            }
+
+            // Tier 2 initialization: Track geometry only
+            initializeTrack() {
                 const track = this.weekendData.circuit.track;
                 this.trackData = { x: track.x, y: track.y, distance: track.distance };
-                console.log(`Track loaded: ${track.x.length} points, circuit_length=${this.sessionData.metadata.track_length}m`);
 
                 if (this.weekendData.circuit.pit_lane) {
                     this.pitLaneData = this.weekendData.circuit.pit_lane;
                 }
 
+                // Store track segments (marshal sectors with start/end distances)
+                this.trackSegments = this.weekendData.circuit.track_segments || [];
+
                 // Rotation (convert degrees to radians)
-                this.rotation = (this.weekendData.circuit.rotation || 0) * Math.PI / 180;
-                console.log(`Rotation: ${this.rotation.toFixed(4)} rad (${(this.rotation * 180 / Math.PI).toFixed(1)}°)`);
+                const rotationDeg = this.weekendData.circuit.rotation || 0;
+                this.rotation = rotationDeg * Math.PI / 180;
+                console.log(`Track rotation: ${rotationDeg}° (${this.rotation.toFixed(3)} rad)`);
+            }
+
+            // Get sector number for a given track distance (uses backend-provided boundaries)
+            getSectorForDistance(distance) {
+                if (!this.trackSegments || this.trackSegments.length === 0) {
+                    return null;
+                }
+                for (const seg of this.trackSegments) {
+                    // Handle wrap-around case (last sector wraps past lap distance)
+                    if (seg.end_distance > seg.start_distance) {
+                        if (distance >= seg.start_distance && distance < seg.end_distance) {
+                            // Extract sector number from name (e.g., "Sector 5" -> 5)
+                            const match = seg.name.match(/\d+/);
+                            return match ? parseInt(match[0]) : null;
+                        }
+                    } else {
+                        // Wrap-around: sector spans end of track to start
+                        if (distance >= seg.start_distance || distance < seg.end_distance) {
+                            const match = seg.name.match(/\d+/);
+                            return match ? parseInt(match[0]) : null;
+                        }
+                    }
+                }
+                return null;
+            }
+
+            // Tier 3 initialization: Session telemetry and events
+            initializeSession() {
+                if (!this.sessionData?.metadata) return;
 
                 // Track status events (ensure they're arrays)
                 this.trackStatusEvents = Array.isArray(this.sessionData.events?.track_status)
@@ -2028,7 +2127,6 @@
                 for (const driver in this.sessionData.telemetry) {
                     const tel = this.sessionData.telemetry[driver];
                     if (tel.session_time && tel.session_time.length > 0) {
-                        // session_time is sorted, so last element is max
                         const lastTime = tel.session_time[tel.session_time.length - 1];
                         if (lastTime > maxTime) maxTime = lastTime;
                     }
@@ -2046,7 +2144,6 @@
                 this.drivers = this.sessionData.metadata.drivers.map(code => {
                     const info = this.sessionData.metadata.driver_info[code] || {};
                     let color = info.color || '#CCCCCC';
-                    // Add '#' prefix if missing
                     if (color && !color.startsWith('#')) {
                         color = '#' + color;
                     }
@@ -2055,15 +2152,11 @@
                         code,
                         color,
                         number: info.number || 0,
-                        name: info.name || code,  // Full name from FastF1 data
+                        name: info.name || code,
                         telemetry: this.sessionData.telemetry[code] || { session_time: [] },
                         dnf: dnf
                     };
                 });
-
-                if (dnfList.length > 0) {
-                    console.log(`DNF drivers: ${dnfList.join(', ')}`);
-                }
 
                 this.initializeFastestLapOverlay();
                 this.updateStandings();
@@ -2946,7 +3039,6 @@
                     // If it's a new fastest lap, show the time (hide icon)
                     if (isNewFastestLap) {
                         const formattedTime = this.formatLapTime(applicableFastestLap.time);
-                        console.log(`🏁 NEW FASTEST LAP: ${applicableFastestLap.driver} - Lap ${applicableFastestLap.lap} - ${formattedTime}`);
 
                         // Remove any existing time element
                         const existingTime = driverIndicator.querySelector('.fastest-lap-time');
@@ -3042,7 +3134,19 @@
                 this.ctx.fillStyle = '#000';
                 this.ctx.fillRect(0, 0, width, height);
 
-                if (!this.trackData) return;
+                // Early return if no track data - show loading or error message
+                if (!this.trackData) {
+                    this.ctx.textAlign = 'center';
+                    this.ctx.textBaseline = 'middle';
+                    if (this.tier2Error) {
+                        // Error state handled by showTrackError()
+                    } else if (!this.hasTrackData) {
+                        this.ctx.fillStyle = '#666';
+                        this.ctx.font = '16px Arial';
+                        this.ctx.fillText('Loading track...', width / 2, height / 2);
+                    }
+                    return;
+                }
 
                 // Calculate bounds
                 let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -3064,7 +3168,7 @@
 
                 const centerX = (minX + maxX) / 2;
                 const centerY = (minY + maxY) / 2;
-                const rotRad = -this.rotation;
+                const rotRad = this.rotation;  // FastF1 rotation convention: positive = counter-clockwise
                 const cos = Math.cos(rotRad);
                 const sin = Math.sin(rotRad);
 
@@ -3099,7 +3203,7 @@
                 let chaseCenterY = null;
 
                 // In chase mode, find the chased driver's position and use that as the focal point
-                if (this.chaseMode) {
+                if (this.chaseMode && this.hasSessionData) {
                     const positions = this.getDriversAtTime();
                     const chasingDriver = positions.find(p => p.code === this.chaseMode);
                     if (chasingDriver && !this.isDriverRetired(this.chaseMode)) {
@@ -3175,16 +3279,14 @@
 
                 if (this.trackStatus.yellowSectors && this.trackStatus.yellowSectors.size > 0 && this.trackData.distance) {
                     // Track has distance data - draw with sector-based coloring
-                    const lapDist = this.sessionData.metadata.track_length;
                     let currentPath = [];
                     let currentColor = this.trackColor;
-                    let lastSector = null;
 
                     for (let i = 0; i < this.trackData.x.length; i++) {
                         const dist = this.trackData.distance[i] || 0;
-                        // Estimate marshal sector (1-20) from track distance
-                        const sectorNum = Math.max(1, Math.min(20, Math.floor((dist / lapDist) * 20) + 1));
-                        const newColor = this.trackStatus.yellowSectors.has(sectorNum) ? '#FFD700' : this.trackColor;
+                        // Use backend-provided sector boundaries
+                        const sectorNum = this.getSectorForDistance(dist);
+                        const newColor = (sectorNum && this.trackStatus.yellowSectors.has(sectorNum)) ? '#FFD700' : this.trackColor;
 
                         // If color changed, draw the previous path
                         if (newColor !== currentColor && currentPath.length > 0) {
@@ -3288,46 +3390,48 @@
                     }
                 }
 
-                // Draw drivers with glow (skip retired drivers)
-                const positions = this.getDriversAtTime();
-                for (const pos of positions) {
-                    // Skip if driver is retired
-                    if (this.isDriverRetired(pos.code)) continue;
+                // Draw drivers with glow (only if session data available)
+                if (this.hasSessionData && this.drivers.length > 0) {
+                    const positions = this.getDriversAtTime();
+                    for (const pos of positions) {
+                        // Skip if driver is retired
+                        if (this.isDriverRetired(pos.code)) continue;
 
-                    const p = screenTransform(pos.x, pos.y);
+                        const p = screenTransform(pos.x, pos.y);
 
-                    // Blue flag outline (before main glow so it's behind)
-                    if (pos.number in this.activeBlueFlagCars) {
-                        this.ctx.strokeStyle = '#3399FF';
-                        this.ctx.lineWidth = 3;
-                        this.ctx.shadowColor = '#3399FF';
-                        this.ctx.shadowBlur = 8;
+                        // Blue flag outline (before main glow so it's behind)
+                        if (pos.number in this.activeBlueFlagCars) {
+                            this.ctx.strokeStyle = '#3399FF';
+                            this.ctx.lineWidth = 3;
+                            this.ctx.shadowColor = '#3399FF';
+                            this.ctx.shadowBlur = 8;
+                            this.ctx.beginPath();
+                            this.ctx.arc(p.x, p.y, 12, 0, Math.PI * 2);
+                            this.ctx.stroke();
+                        }
+
+                        // Driver glow effect
+                        this.ctx.shadowColor = pos.color;
+                        this.ctx.shadowBlur = 15;
+                        this.ctx.fillStyle = pos.color;
                         this.ctx.beginPath();
-                        this.ctx.arc(p.x, p.y, 12, 0, Math.PI * 2);
-                        this.ctx.stroke();
+                        this.ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
+                        this.ctx.fill();
+
+                        // Inner dark circle for contrast
+                        this.ctx.shadowColor = 'transparent';
+                        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+                        this.ctx.beginPath();
+                        this.ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+                        this.ctx.fill();
+
+                        // Driver number
+                        this.ctx.fillStyle = '#FFF';
+                        this.ctx.font = 'bold 9px Arial';
+                        this.ctx.textAlign = 'center';
+                        this.ctx.textBaseline = 'middle';
+                        this.ctx.fillText(pos.number, p.x, p.y);
                     }
-
-                    // Driver glow effect
-                    this.ctx.shadowColor = pos.color;
-                    this.ctx.shadowBlur = 15;
-                    this.ctx.fillStyle = pos.color;
-                    this.ctx.beginPath();
-                    this.ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
-                    this.ctx.fill();
-
-                    // Inner dark circle for contrast
-                    this.ctx.shadowColor = 'transparent';
-                    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-                    this.ctx.beginPath();
-                    this.ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
-                    this.ctx.fill();
-
-                    // Driver number
-                    this.ctx.fillStyle = '#FFF';
-                    this.ctx.font = 'bold 9px Arial';
-                    this.ctx.textAlign = 'center';
-                    this.ctx.textBaseline = 'middle';
-                    this.ctx.fillText(pos.number, p.x, p.y);
                 }
             }
 
@@ -3392,37 +3496,41 @@
                 const deltaTime = (now - this.lastFrameTime) / 1000;
                 this.lastFrameTime = now;
 
-                if (this.isPlaying) {
-                    this.previousTime = this.currentTime;
-                    this.currentTime += deltaTime * this.playSpeed;
-                    if (this.currentTime > this.maxTime) {
-                        this.currentTime = this.maxTime;
-                        this.isPlaying = false;
-                        document.getElementById('playPauseBtn').textContent = '▶';
-                        console.log('Race finished!');
-                    }
-                } else {
-                    // Even when paused, track previousTime for selector changes
-                    if (this.previousTime === -Infinity) {
+                // Session-dependent operations (only when Tier 3 loaded)
+                if (this.hasSessionData) {
+                    if (this.isPlaying) {
                         this.previousTime = this.currentTime;
+                        this.currentTime += deltaTime * this.playSpeed;
+                        if (this.currentTime > this.maxTime) {
+                            this.currentTime = this.maxTime;
+                            this.isPlaying = false;
+                            document.getElementById('playPauseBtn').textContent = '▶';
+                        }
+                    } else {
+                        // Even when paused, track previousTime for selector changes
+                        if (this.previousTime === -Infinity) {
+                            this.previousTime = this.currentTime;
+                        }
                     }
+
+                    document.getElementById('raceTimer').textContent = this.formatTime(this.currentTime);
+
+                    // Update progress bar (only when not dragging)
+                    if (!this.isDraggingKnob) {
+                        this.updateProgressBar();
+                    }
+
+                    // Clean up expired blue flags
+                    this.cleanupExpiredBlueFlags();
+
+                    // Update track status (logs only when status changes)
+                    this.updateTrackStatus();
+
+                    this.updateStandings();
+                    this.updateTrackColor();
                 }
 
-                document.getElementById('raceTimer').textContent = this.formatTime(this.currentTime);
-
-                // Update progress bar (only when not dragging)
-                if (!this.isDraggingKnob) {
-                    this.updateProgressBar();
-                }
-
-                // Clean up expired blue flags
-                this.cleanupExpiredBlueFlags();
-
-                // Update track status (logs only when status changes)
-                this.updateTrackStatus();
-
-                this.updateStandings();
-                this.updateTrackColor();
+                // Always render (track-only or full)
                 this.render();
 
                 requestAnimationFrame(() => this.animate());

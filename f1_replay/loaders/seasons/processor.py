@@ -13,6 +13,16 @@ from f1_replay.loaders.core.client import FastF1Client
 SeasonsCatalog = Dict[int, List[EventInfo]]
 
 
+def extract_timezone_offset(date_str: str) -> str:
+    """Extract timezone offset from ISO datetime string (e.g., '+02:00' from '2025-09-05T13:30:00+02:00')."""
+    import re
+    if date_str:
+        match = re.search(r'([+-]\d{2}:\d{2})$', date_str)
+        if match:
+            return match.group(1)
+    return ""
+
+
 class SeasonsProcessor:
     """Process and build F1 seasons catalog."""
 
@@ -109,18 +119,26 @@ class SeasonsProcessor:
                             pass
                     sessions.append(SessionInfo(name=session_name, date=date_str))
 
+            # Extract timezone offset from first session's datetime string
+            timezone = ""
+            for s in sessions:
+                if s.date:
+                    timezone = extract_timezone_offset(s.date)
+                    if timezone:
+                        break
+
             event = EventInfo(
                 name=row.get('EventName', ''),
-                location=row.get('Location', ''),
+                official_name=row.get('OfficialEventName', ''),
+                circuit_name=row.get('Location', ''),
                 country=row.get('Country', ''),
-                circuit_name=row.get('Circuit', '') or row.get('OfficialEventName', ''),
                 year=year,
                 round_number=int(row.get('RoundNumber', 0)),
                 start_date=event_start,
                 end_date=event_date,
                 sessions=sessions,
-                timezone=self.display_timezone,
-                event_format=event_format if event_format else 'conventional',
+                timezone_offset=timezone,
+                format=event_format if event_format else 'conventional',
             )
             events.append(event)
 

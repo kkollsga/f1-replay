@@ -171,7 +171,7 @@ class DataLoader:
         print(f"\n📡 Building weekend data from FastF1...")
 
         # For testing events (round=0), use dedicated testing API
-        is_testing = event.event_format == 'testing'
+        is_testing = event.format == 'testing'
         if is_testing:
             # Extract test number from event (stored by Manager)
             test_number = getattr(event, 'test_number', 1)

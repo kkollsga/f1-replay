@@ -102,7 +102,7 @@ class TrackFinder:
 
         def is_race_event(event: EventInfo) -> bool:
             """Check if event is a race event (not testing)."""
-            return event.round_number > 0 and event.event_format != 'testing'
+            return event.round_number > 0 and event.format != 'testing'
 
         # First pass: circuit name match (most reliable - same physical track)
         if search_circuit:
@@ -129,7 +129,7 @@ class TrackFinder:
             for event in season:
                 if not is_race_event(event):
                     continue
-                hist_location = event.location
+                hist_location = event.circuit_name
                 if matches_location(search_location, hist_location):
                     return (prev_year, event.round_number, event)
 
@@ -161,7 +161,7 @@ class TrackFinder:
                 continue
 
             for event in season:
-                if event.round_number == 0 or event.event_format == 'testing':
+                if event.round_number == 0 or event.format == 'testing':
                     continue
                 if event.circuit_name and matches_location(circuit_name, event.circuit_name):
                     return (year, event.round_number, event)

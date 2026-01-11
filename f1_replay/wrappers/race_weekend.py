@@ -45,14 +45,15 @@ class RaceWeekend:
     Attributes:
         year: Season year
         round_number: Race round number
-        event_name: e.g., 'Monaco Grand Prix'
-        location: e.g., 'Monte Carlo'
+        name: e.g., 'Monaco Grand Prix'
+        official_name: e.g., 'FORMULA 1 CRYPTO.COM MONACO GRAND PRIX 2025'
+        circuit_name: e.g., 'Monte Carlo'
         country: e.g., 'Monaco'
-        circuit_name: e.g., 'Circuit de Monaco'
-        timezone: e.g., 'Europe/Monaco'
-        event_date: ISO date string
-        event_start: First session date
-        available_sessions: ['FP1', 'FP2', 'FP3', 'Q', 'R']
+        timezone_offset: e.g., '+02:00'
+        start_date: First session date (ISO)
+        end_date: Race date (ISO)
+        format: 'conventional' or 'sprint_qualifying'
+        session_schedule: {session_name: datetime}
         circuit: CircuitData (track, pit_lane, length, corners, etc.)
     """
 
@@ -93,36 +94,36 @@ class RaceWeekend:
         return self._data.event.round_number
 
     @property
-    def event_name(self) -> str:
+    def name(self) -> str:
         return self._data.event.name
 
     @property
-    def location(self) -> str:
-        return self._data.event.location
-
-    @property
-    def country(self) -> str:
-        return self._data.event.country
+    def official_name(self) -> str:
+        return self._data.event.official_name
 
     @property
     def circuit_name(self) -> str:
         return self._data.event.circuit_name
 
     @property
-    def timezone(self) -> str:
-        return self._data.event.timezone
+    def country(self) -> str:
+        return self._data.event.country
 
     @property
-    def event_date(self) -> str:
-        return self._data.event.end_date
+    def timezone_offset(self) -> str:
+        return self._data.event.timezone_offset
 
     @property
-    def event_start(self) -> str:
+    def start_date(self) -> str:
         return self._data.event.start_date
 
     @property
-    def available_sessions(self) -> List[str]:
-        return self._data.event.available_sessions
+    def end_date(self) -> str:
+        return self._data.event.end_date
+
+    @property
+    def format(self) -> str:
+        return self._data.event.format
 
     @property
     def session_schedule(self) -> Dict[str, str]:
@@ -347,8 +348,8 @@ class RaceWeekend:
     def keys(self) -> List[str]:
         """List available data fields."""
         return [
-            'year', 'round_number', 'event_name', 'location', 'country',
-            'circuit_name', 'timezone', 'event_date', 'available_sessions',
+            'year', 'round_number', 'name', 'official_name', 'circuit_name', 'country',
+            'timezone_offset', 'start_date', 'end_date', 'format', 'session_schedule',
             'circuit', 'track', 'pit_lane', 'circuit_length', 'corners', 'rotation',
             'race', 'qualifying', 'sprint', 'fp1', 'fp2', 'fp3'
         ]
@@ -357,8 +358,8 @@ class RaceWeekend:
         """Format event date range like '11-13 Apr'."""
         from datetime import datetime
         try:
-            end = datetime.strptime(self.event_date, "%Y-%m-%d")
-            start = datetime.strptime(self.event_start, "%Y-%m-%d") if self.event_start else None
+            end = datetime.strptime(self.end_date, "%Y-%m-%d")
+            start = datetime.strptime(self.start_date, "%Y-%m-%d") if self.start_date else None
 
             if start and start.month == end.month:
                 return f"{start.day}-{end.day} {end.strftime('%b')}"
@@ -367,7 +368,7 @@ class RaceWeekend:
             else:
                 return f"{end.day} {end.strftime('%b')}"
         except (ValueError, TypeError):
-            return self.event_date[:10] if self.event_date else ""
+            return self.end_date[:10] if self.end_date else ""
 
     def plot(
         self,
@@ -403,17 +404,18 @@ class RaceWeekend:
         )
 
     def __repr__(self) -> str:
-        parts = [f"RaceWeekend({self.year} R{self.round_number}: {self.event_name}"]
+        parts = [f"RaceWeekend({self.year} R{self.round_number}: {self.name}"]
 
         date_range = self._format_date_range()
         if date_range:
             parts.append(f', date="{date_range}"')
 
         # Convert to shortnames
+        sessions = list(self.session_schedule.keys())
         short_sessions = [
             self.SESSION_SHORTNAMES.get(s, s)
-            for s in self.available_sessions
-        ] if self.available_sessions else []
+            for s in sessions
+        ] if sessions else []
         sessions_str = ", ".join(short_sessions) if short_sessions else "none"
         parts.append(f", sessions=[{sessions_str}]")
 
