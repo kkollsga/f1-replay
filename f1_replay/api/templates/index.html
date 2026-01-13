@@ -27,6 +27,7 @@
             display: flex;
             flex-direction: row;
             gap: 0;
+            position: relative;
         }
 
         /* Left Sidebar */
@@ -70,6 +71,7 @@
             align-items: center;
             overflow: hidden;
             padding: 20px;
+            position: relative;
         }
 
         /* Track Canvas */
@@ -78,6 +80,28 @@
             width: 100%;
             height: 100%;
             cursor: default;
+        }
+
+        /* Zoom Indicator */
+        .zoom-indicator {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            color: #FFFFFF;
+            padding: 8px 14px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            font-family: 'Courier New', monospace;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            pointer-events: none;
+            z-index: 100;
+        }
+
+        .zoom-indicator.visible {
+            opacity: 1;
         }
 
         /* Body Footer (Race Selector) */
@@ -90,15 +114,18 @@
             background: transparent;
         }
 
-        /* Right Message Center */
+        /* Right Message Center - Overlay positioned */
         .message-center {
-            width: 540px;
-            height: 100vh;
-            padding: 20px;
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 400px;
+            max-height: calc(100vh - 200px);
+            padding: 0;
             display: flex;
             flex-direction: column;
             z-index: 998;
-            flex-shrink: 0;
+            pointer-events: none;
         }
 
         .sidebar-header {
@@ -449,10 +476,10 @@
         /* Messages Container */
         .messages-container {
             width: 100%;
-            height: 100%;
             display: flex;
             flex-direction: column;
-            overflow: hidden;
+            overflow: visible;
+            pointer-events: none;
         }
 
         /* Race Control Messages */
@@ -463,9 +490,7 @@
             gap: 8px;
             z-index: 998;
             pointer-events: none;
-            overflow-y: auto;
-            overflow-x: hidden;
-            flex: 1;
+            overflow: visible;
         }
 
         .race-message {
@@ -929,69 +954,6 @@
             border-top: none;
         }
 
-        .zoom-section {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            flex: 1;
-        }
-
-        .zoom-display {
-            font-size: 12px;
-            font-weight: 700;
-            color: #FFFFFF;
-            min-width: 44px;
-            text-align: center;
-            font-family: 'Courier New', monospace;
-            background: rgba(255, 255, 255, 0.05);
-            padding: 4px 6px;
-            border-radius: 4px;
-            border: 1px solid rgba(255, 255, 255, 0.15);
-        }
-
-        .zoom-buttons {
-            display: flex;
-            flex-direction: column;
-            gap: 2px;
-        }
-
-        .zoom-btn {
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.25);
-            color: #FFFFFF;
-            padding: 4px 6px;
-            cursor: pointer;
-            font-size: 11px;
-            font-weight: 700;
-            transition: all 0.15s ease;
-            font-family: 'Helvetica Neue', Arial, sans-serif;
-            width: 28px;
-            height: 24px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .zoom-btn:hover {
-            background: rgba(255, 255, 255, 0.15);
-            border-color: rgba(255, 255, 255, 0.4);
-            color: #FFD700;
-        }
-
-        .zoom-btn:active {
-            transform: scale(0.95);
-        }
-
-        .zoom-btn.plus {
-            border-radius: 4px 4px 0 0;
-            border-bottom: none;
-        }
-
-        .zoom-btn.minus {
-            border-radius: 0 0 4px 4px;
-            border-top: none;
-        }
-
         /* Mobile Toggle Buttons */
         .mobile-toggles {
             display: none;
@@ -1234,6 +1196,7 @@
         <!-- Main: Track Canvas -->
         <div class="body-main">
             <canvas id="trackCanvas"></canvas>
+            <div id="zoomIndicator" class="zoom-indicator">100%</div>
         </div>
 
         <!-- Footer: Race Selector / Follow Mode -->
@@ -1265,13 +1228,6 @@
                         <div class="driver-nav-buttons">
                             <button class="follow-btn next" id="nextDriverBtn">↑</button>
                             <button class="follow-btn prev" id="prevDriverBtn">↓</button>
-                        </div>
-                    </div>
-                    <div class="zoom-section">
-                        <div class="zoom-display" id="zoomDisplay">0.1x</div>
-                        <div class="zoom-buttons">
-                            <button class="zoom-btn plus" id="zoomInBtn">+</button>
-                            <button class="zoom-btn minus" id="zoomOutBtn">−</button>
                         </div>
                     </div>
                 </div>
@@ -1521,7 +1477,9 @@
                 this.isPlaying = false;
                 this.playSpeed = 1;
                 this.currentTime = 0;
+                this.minTime = 0;
                 this.maxTime = 0;
+                this.lightsOutTime = 0;
 
                 // Data
                 this.weekendData = null;
@@ -1542,6 +1500,8 @@
 
                 // Track rendering
                 this.trackColor = '#FFFFFF';
+                this.baseTrackColor = '#FFFFFF';  // Base color before pulsing
+                this.trackPulsing = false;        // Whether track should pulse (SC/VSC ending)
                 this.bounds = null;
                 this.scale = 1;
                 this.offsetX = 0;
@@ -1549,6 +1509,18 @@
                 this.rotation = 0;
                 this.trackStatus = new TrackStatus();  // State manager for track flags
                 this.raceControl = new RaceControl();  // State manager for race control messages
+
+                // Zoom and pan state (overview mode)
+                this.baseScale = 1;               // Scale to fit track in canvas (100% reference)
+                this.userZoom = 1.0;              // User zoom multiplier (1.0 = 100%)
+                this.panX = 0;                    // Pan offset in track space
+                this.panY = 0;
+                this.isDraggingPan = false;       // Pan drag state
+                this.dragStartX = 0;
+                this.dragStartY = 0;
+                this.dragStartPanX = 0;
+                this.dragStartPanY = 0;
+                this.zoomIndicatorTimeout = null; // For auto-hiding zoom indicator
 
                 // Message tracking
                 this.displayedMessageIds = new Set();
@@ -1586,8 +1558,8 @@
                 // Progress bar state
                 this.isDraggingKnob = false;
 
-                // Blue flag tracking (car number -> time waved)
-                this.activeBlueFlagCars = {};
+                // Blue flag tracking (set of driver numbers with active blue flags)
+                this.blueFlagDrivers = new Set();
 
                 // Fastest lap tracking
                 this.currentFastestLapDriver = null;  // Driver code with fastest lap
@@ -1595,7 +1567,7 @@
 
                 // Chase mode state (null = overview mode, driver code = chasing that driver)
                 this.chaseMode = null;
-                this.currentZoom = 0.1;  // Zoom level in follow mode (0.1 = full map, no zoom)
+                this.currentZoom = 1.0;  // Zoom level in chase mode (1.0 = 100%, fits track)
 
                 // Standings display mode: 'time' or 'tire'
                 // Scrolling: deterministic by lap position (2 laps time, 0.5 lap tire cycle)
@@ -1617,12 +1589,240 @@
 
             setupCanvas() {
                 const dpr = window.devicePixelRatio || 1;
-                const rect = this.canvas.getBoundingClientRect();
+                // Reset inline styles so canvas can resize with container
+                this.canvas.style.width = '';
+                this.canvas.style.height = '';
+                // Get the container dimensions
+                const container = this.canvas.parentElement;
+                const rect = container.getBoundingClientRect();
                 this.canvas.width = rect.width * dpr;
                 this.canvas.height = rect.height * dpr;
                 this.ctx.scale(dpr, dpr);
-                this.canvas.style.width = rect.width + 'px';
-                this.canvas.style.height = rect.height + 'px';
+                // Recalculate base scale for new canvas size
+                this.calculateBaseScale();
+            }
+
+            calculateBaseScale() {
+                if (!this.trackData) return;
+
+                const width = this.canvas.width / (window.devicePixelRatio || 1);
+                const height = this.canvas.height / (window.devicePixelRatio || 1);
+
+                // Calculate raw bounds
+                let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+                for (let i = 0; i < this.trackData.x.length; i++) {
+                    minX = Math.min(minX, this.trackData.x[i]);
+                    maxX = Math.max(maxX, this.trackData.x[i]);
+                    minY = Math.min(minY, this.trackData.y[i]);
+                    maxY = Math.max(maxY, this.trackData.y[i]);
+                }
+
+                if (this.pitLaneData) {
+                    for (let i = 0; i < this.pitLaneData.x.length; i++) {
+                        minX = Math.min(minX, this.pitLaneData.x[i]);
+                        maxX = Math.max(maxX, this.pitLaneData.x[i]);
+                        minY = Math.min(minY, this.pitLaneData.y[i]);
+                        maxY = Math.max(maxY, this.pitLaneData.y[i]);
+                    }
+                }
+
+                // Cache track center for rotation
+                this.trackCenterX = (minX + maxX) / 2;
+                this.trackCenterY = (minY + maxY) / 2;
+
+                // Calculate rotated bounds
+                const rotRad = this.rotation;
+                const cos = Math.cos(rotRad);
+                const sin = Math.sin(rotRad);
+
+                let rotMinX = Infinity, rotMaxX = -Infinity, rotMinY = Infinity, rotMaxY = -Infinity;
+                for (let i = 0; i < this.trackData.x.length; i++) {
+                    const dx = this.trackData.x[i] - this.trackCenterX;
+                    const dy = this.trackData.y[i] - this.trackCenterY;
+                    const rotX = dx * cos - dy * sin + this.trackCenterX;
+                    const rotY = dx * sin + dy * cos + this.trackCenterY;
+                    rotMinX = Math.min(rotMinX, rotX);
+                    rotMaxX = Math.max(rotMaxX, rotX);
+                    rotMinY = Math.min(rotMinY, rotY);
+                    rotMaxY = Math.max(rotMaxY, rotY);
+                }
+
+                // Cache rotated bounds
+                this.rotBounds = {
+                    minX: rotMinX, maxX: rotMaxX, minY: rotMinY, maxY: rotMaxY,
+                    width: rotMaxX - rotMinX,
+                    height: rotMaxY - rotMinY,
+                    centerX: (rotMinX + rotMaxX) / 2,
+                    centerY: (rotMinY + rotMaxY) / 2
+                };
+
+                // Calculate base scale (100% zoom = track fits in canvas)
+                const padding = 40;
+                const availWidth = width - padding * 2;
+                const availHeight = height - padding * 2;
+                const scaleX = availWidth / this.rotBounds.width;
+                const scaleY = availHeight / this.rotBounds.height;
+                this.baseScale = Math.min(scaleX, scaleY);
+            }
+
+            // Convert screen coordinates to track coordinates
+            screenToTrack(screenX, screenY) {
+                const rotRad = this.rotation;
+                const cos = Math.cos(-rotRad); // Inverse rotation
+                const sin = Math.sin(-rotRad);
+
+                // Reverse the screen transform
+                const rotX = (screenX - this.offsetX) / this.scale;
+                const rotY = -(screenY - this.offsetY) / this.scale;
+
+                // Reverse the rotation
+                const dx = rotX - this.trackCenterX;
+                const dy = rotY - this.trackCenterY;
+                const trackX = dx * cos - dy * sin + this.trackCenterX;
+                const trackY = dx * sin + dy * cos + this.trackCenterY;
+
+                return { x: trackX, y: trackY };
+            }
+
+            handleWheel(e) {
+                e.preventDefault();
+                if (!this.trackData || !this.rotBounds) return;
+
+                const rect = this.canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+
+                // Zoom factor: scroll up = zoom in, scroll down = zoom out
+                const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+
+                if (this.chaseMode) {
+                    // Chase mode: zoom centered on chased car
+                    const newZoom = Math.max(1.0, Math.min(10.0, this.currentZoom * zoomFactor));
+                    this.currentZoom = newZoom;
+                } else {
+                    // Overview mode: zoom centered on cursor
+                    const oldZoom = this.userZoom;
+                    const newZoom = Math.max(1.0, Math.min(10.0, oldZoom * zoomFactor));
+
+                    if (newZoom !== oldZoom) {
+                        // Get track position under cursor before zoom
+                        const trackPos = this.screenToTrack(mouseX, mouseY);
+
+                        // Apply new zoom
+                        this.userZoom = newZoom;
+                        this.scale = this.baseScale * this.userZoom;
+
+                        // Calculate where that track position would be on screen after zoom
+                        const rotRad = this.rotation;
+                        const cos = Math.cos(rotRad);
+                        const sin = Math.sin(rotRad);
+                        const dx = trackPos.x - this.trackCenterX;
+                        const dy = trackPos.y - this.trackCenterY;
+                        const rotX = dx * cos - dy * sin + this.trackCenterX;
+                        const rotY = dx * sin + dy * cos + this.trackCenterY;
+
+                        // Adjust pan so cursor stays over the same track position
+                        const width = this.canvas.width / (window.devicePixelRatio || 1);
+                        const height = this.canvas.height / (window.devicePixelRatio || 1);
+                        const centerCanvasX = width / 2;
+                        const centerCanvasY = height / 2;
+
+                        // New offset needed to keep track point under cursor
+                        const newOffsetX = mouseX - rotX * this.scale;
+                        const newOffsetY = mouseY + rotY * this.scale;
+
+                        // Convert to pan offset
+                        this.panX = this.rotBounds.centerX - (centerCanvasX - newOffsetX) / this.scale;
+                        this.panY = (newOffsetY - centerCanvasY) / this.scale - this.rotBounds.centerY;
+
+                        // Constrain pan
+                        this.constrainPan();
+                    }
+                }
+
+                this.showZoomIndicator();
+
+                // Update cursor based on zoom state
+                if (!this.chaseMode && !this.isDraggingPan) {
+                    this.canvas.style.cursor = this.userZoom > 1.0 ? 'grab' : 'default';
+                }
+            }
+
+            handlePanStart(e) {
+                // Only pan in overview mode and with left mouse button
+                if (this.chaseMode || e.button !== 0) return;
+                if (!this.trackData || this.userZoom <= 1.0) return;
+
+                this.isDraggingPan = true;
+                this.dragStartX = e.clientX;
+                this.dragStartY = e.clientY;
+                this.dragStartPanX = this.panX;
+                this.dragStartPanY = this.panY;
+                this.canvas.style.cursor = 'grabbing';
+                e.preventDefault();
+            }
+
+            handlePanMove(e) {
+                if (!this.isDraggingPan) return;
+
+                const dx = e.clientX - this.dragStartX;
+                const dy = e.clientY - this.dragStartY;
+
+                // Convert screen delta to track space (drag down = pan up, like scrolling)
+                this.panX = this.dragStartPanX + dx / this.scale;
+                this.panY = this.dragStartPanY + dy / this.scale;
+
+                this.constrainPan();
+            }
+
+            handlePanEnd() {
+                if (this.isDraggingPan) {
+                    this.isDraggingPan = false;
+                    this.canvas.style.cursor = this.userZoom > 1.0 ? 'grab' : 'default';
+                }
+            }
+
+            constrainPan() {
+                if (!this.rotBounds || this.userZoom <= 1.0) {
+                    this.panX = 0;
+                    this.panY = 0;
+                    return;
+                }
+
+                // Allow panning to center any point on the track
+                // Max pan = half the track dimension (from center to edge)
+                const maxPanX = this.rotBounds.width / 2;
+                const maxPanY = this.rotBounds.height / 2;
+
+                this.panX = Math.max(-maxPanX, Math.min(maxPanX, this.panX));
+                this.panY = Math.max(-maxPanY, Math.min(maxPanY, this.panY));
+            }
+
+            showZoomIndicator() {
+                const indicator = document.getElementById('zoomIndicator');
+                if (!indicator) return;
+
+                const zoom = this.chaseMode ? this.currentZoom : this.userZoom;
+                indicator.textContent = Math.round(zoom * 100) + '%';
+                indicator.classList.add('visible');
+
+                // Clear existing timeout
+                if (this.zoomIndicatorTimeout) {
+                    clearTimeout(this.zoomIndicatorTimeout);
+                }
+
+                // Hide after 1 second
+                this.zoomIndicatorTimeout = setTimeout(() => {
+                    indicator.classList.remove('visible');
+                }, 1000);
+            }
+
+            resetZoomPan() {
+                this.userZoom = 1.0;
+                this.panX = 0;
+                this.panY = 0;
+                this.currentZoom = 1.0;
+                this.canvas.style.cursor = 'default';
             }
 
             applySettings() {
@@ -1668,11 +1868,11 @@
                     }
                 });
 
-                // Debounced resize handler for smooth scaling
-                const handleResize = this.debounce(() => {
+                // Resize handler for smooth scaling
+                const handleResize = () => {
                     this.setupCanvas();
                     this.render();
-                }, 100);
+                };
                 window.addEventListener('resize', handleResize);
 
                 // Also handle orientation change for mobile devices
@@ -1682,6 +1882,14 @@
                         this.render();
                     }, 200);
                 });
+
+                // Mouse wheel zoom
+                this.canvas.addEventListener('wheel', (e) => this.handleWheel(e), { passive: false });
+
+                // Pan with mouse drag (overview mode only)
+                this.canvas.addEventListener('mousedown', (e) => this.handlePanStart(e));
+                document.addEventListener('mousemove', (e) => this.handlePanMove(e));
+                document.addEventListener('mouseup', () => this.handlePanEnd());
 
                 // Mobile panel toggle buttons
                 const sidebar = document.getElementById('sidebar');
@@ -1748,8 +1956,6 @@
                 // Follow mode events
                 document.getElementById('prevDriverBtn').addEventListener('click', () => this.switchDriver(-1));
                 document.getElementById('nextDriverBtn').addEventListener('click', () => this.switchDriver(1));
-                document.getElementById('zoomInBtn').addEventListener('click', () => this.adjustZoom(0.1));
-                document.getElementById('zoomOutBtn').addEventListener('click', () => this.adjustZoom(-0.1));
                 document.getElementById('closeChaseBtn').addEventListener('click', () => this.exitFollowMode());
             }
 
@@ -1800,9 +2006,9 @@
                 if (year && year.rounds) {
                     year.rounds.forEach(round => {
                         const option = document.createElement('option');
-                        option.value = round.round;
-                        option.textContent = round.event_name;
-                        if (round.round === this.selectedRound) {
+                        option.value = round.round_number;
+                        option.textContent = round.name;
+                        if (round.round_number === this.selectedRound) {
                             option.selected = true;
                         }
                         eventSelect.appendChild(option);
@@ -1949,7 +2155,7 @@
                 overlay.className = 'scheduled-overlay';
                 overlay.innerHTML = `
                     <div class="scheduled-content">
-                        <h1>🏁 ${scheduledData.event_name}</h1>
+                        <h1>🏁 ${scheduledData.name}</h1>
                         <p class="scheduled-type">${scheduledData.session_type}</p>
                         <p class="scheduled-date">${scheduledData.scheduled_date_formatted}</p>
                         <p class="scheduled-message">${scheduledData.message}</p>
@@ -2068,6 +2274,10 @@
                 const rotationDeg = this.weekendData.circuit.rotation || 0;
                 this.rotation = rotationDeg * Math.PI / 180;
                 console.log(`Track rotation: ${rotationDeg}° (${this.rotation.toFixed(3)} rad)`);
+
+                // Reset zoom/pan and calculate base scale for new track
+                this.resetZoomPan();
+                this.calculateBaseScale();
             }
 
             // Get sector number for a given track distance (uses backend-provided boundaries)
@@ -2112,7 +2322,7 @@
                 this.lastLoggedTrackStatusIndex = -1;
                 this.displayedMessageIds.clear();
                 this.cachedTotalLaps = null;  // Reset lap cache for new session
-                this.activeBlueFlagCars = {};  // Reset blue flags for new session
+                this.blueFlagDrivers = new Set();  // Reset blue flags for new session
 
                 // Setup RaceControl message container
                 const messagesContainer = document.getElementById('raceMessages');
@@ -2133,6 +2343,12 @@
                 }
                 this.maxTime = maxTime;
 
+                // Start time: warmup lap start (formation lap) or 0
+                const t0 = this.sessionData.metadata.t0;
+                this.minTime = t0?.warmup_start_offset ?? 0;
+                this.lightsOutTime = t0?.lights_out_offset ?? 0;
+                this.currentTime = this.minTime;
+
                 // Initialize progress bar
                 this.updateProgressBar();
 
@@ -2141,9 +2357,9 @@
 
                 // Build drivers
                 const dnfList = this.sessionData.metadata.dnf_drivers || [];
-                this.drivers = this.sessionData.metadata.drivers.map(code => {
-                    const info = this.sessionData.metadata.driver_info[code] || {};
-                    let color = info.color || '#CCCCCC';
+                const meta = this.sessionData.metadata;
+                this.drivers = meta.drivers.map(code => {
+                    let color = meta.driver_colors?.[code] || '#CCCCCC';
                     if (color && !color.startsWith('#')) {
                         color = '#' + color;
                     }
@@ -2151,8 +2367,8 @@
                     return {
                         code,
                         color,
-                        number: info.number || 0,
-                        name: info.name || code,
+                        number: meta.driver_numbers?.[code] || 0,
+                        name: meta.driver_names?.[code] || code,
                         telemetry: this.sessionData.telemetry[code] || { session_time: [] },
                         dnf: dnf
                     };
@@ -2208,41 +2424,141 @@
                     return;
                 }
 
-                // Detect scrubbing (time went backwards) - rebuild state silently
-                const isScrubbing = this.currentTime < this.lastProcessedStatusTime;
-                if (isScrubbing) {
-                    this.rebuildTrackStatusSilently();
-                    return;
+                // Always rebuild status from current time (handles blue flags, safety car, etc.)
+                this.rebuildTrackStatusSilently();
+                this.lastProcessedStatusTime = this.currentTime;
+            }
+
+            // Get all active statuses at current time
+            // Returns: { statuses: ['SafetyCar', 'SafetyCarEnding', 'VSC', 'VSCEnding', etc], yellowSectors: Set, blueFlagDrivers: Set }
+            getActiveStatuses() {
+                const BLUE_FLAG_DURATION = 3; // Blue flag shows for 3 seconds
+                const statuses = [];
+                const yellowSectors = new Set();
+                const blueFlagDrivers = new Set();
+
+                for (const event of this.trackStatusEvents) {
+                    if (!event) continue;
+
+                    const status = (event.status || '').toUpperCase();
+
+                    // Blue flags are instant events (no end_time) - active for 3 seconds
+                    if (status === 'BLUE') {
+                        if (event.driver_num &&
+                            this.currentTime >= event.session_time &&
+                            this.currentTime < event.session_time + BLUE_FLAG_DURATION) {
+                            blueFlagDrivers.add(event.driver_num);
+                        }
+                        continue;
+                    }
+
+                    // All other events need end_time to be intervals
+                    if (event.end_time === null || event.end_time === undefined) continue;
+
+                    // Active if: session_time <= currentTime < end_time
+                    if (this.currentTime < event.session_time || this.currentTime >= event.end_time) continue;
+
+                    if (status === 'RED' && !statuses.includes('Red')) {
+                        statuses.push('Red');
+                    } else if (status === 'SCENDING' && !statuses.includes('SafetyCarEnding')) {
+                        // SC Ending overrides regular SC
+                        statuses.push('SafetyCarEnding');
+                    } else if (status === 'SAFETYCAR' && !statuses.includes('SafetyCar') && !statuses.includes('SafetyCarEnding')) {
+                        statuses.push('SafetyCar');
+                    } else if (status === 'VSCENDING' && !statuses.includes('VSCEnding')) {
+                        // VSC Ending overrides regular VSC
+                        statuses.push('VSCEnding');
+                    } else if (status === 'VSC' && !statuses.includes('VSC') && !statuses.includes('VSCEnding')) {
+                        statuses.push('VSC');
+                    } else if (status === 'YELLOW' || status === 'DOUBLEYELLOW') {
+                        if (event.sector) yellowSectors.add(event.sector);
+                    } else if (status === 'RAIN' && !statuses.includes('Rain')) {
+                        statuses.push('Rain');
+                    }
                 }
 
-                // Forward playback: process events incrementally
-                this.processTrackStatusForward(false);
-                this.lastProcessedStatusTime = this.currentTime;
+                return { statuses, yellowSectors, blueFlagDrivers };
             }
 
-            // Rebuild track status from scratch without logging (for scrubbing)
+            // Update track from list of active statuses
+            // Called every frame/scrub with current active statuses
+            updateTrackFromStatuses(activeStatuses, yellowSectors, blueFlagDrivers) {
+                // Check for ending states
+                const scEnding = activeStatuses.includes('SafetyCarEnding');
+                const vscEnding = activeStatuses.includes('VSCEnding');
+                const scActive = activeStatuses.includes('SafetyCar') || scEnding;
+                const vscActive = activeStatuses.includes('VSC') || vscEnding;
+
+                // Update internal state
+                this.trackStatus.redFlag = activeStatuses.includes('Red');
+                this.trackStatus.safetyCar = scActive;
+                this.trackStatus.vsc = vscActive;
+                this.trackStatus.yellowSectors = yellowSectors;
+                this.blueFlagDrivers = blueFlagDrivers; // Store for rendering
+
+                // Track whether we're in an ending state (for pulsing)
+                this.trackPulsing = scEnding || vscEnding;
+
+                // Determine base track color (priority: red > safetyCar > vsc > white)
+                // Yellow sectors are handled separately in track rendering
+                if (this.trackStatus.redFlag) {
+                    this.baseTrackColor = '#FF0000';
+                    this.trackPulsing = false; // No pulsing for red flag
+                } else if (scActive) {
+                    this.baseTrackColor = '#FFD700'; // Gold for SC
+                } else if (vscActive) {
+                    this.baseTrackColor = '#FFA500'; // Orange for VSC
+                } else {
+                    this.baseTrackColor = '#FFFFFF';
+                    this.trackPulsing = false;
+                }
+
+                // Calculate actual track color (with pulsing if ending)
+                this.trackColor = this.trackPulsing ? this.getPulsingColor(this.baseTrackColor) : this.baseTrackColor;
+
+                // Update pills - each pill is independent, can show multiple
+                const scPill = document.getElementById('safetyCarPill');
+                const vscPill = document.getElementById('vscPill');
+                const redFlagPill = document.getElementById('redFlagPill');
+                const rainPill = document.getElementById('rainPill');
+
+                // Show/hide pills and update text for ending states
+                if (scPill) {
+                    scPill.classList.toggle('hidden', !scActive);
+                    scPill.textContent = scEnding ? 'Safety Car Ending' : 'Safety Car';
+                }
+                if (vscPill) {
+                    vscPill.classList.toggle('hidden', !vscActive);
+                    vscPill.textContent = vscEnding ? 'VSC Ending' : 'Virtual Safety Car';
+                }
+                if (redFlagPill) redFlagPill.classList.toggle('hidden', !activeStatuses.includes('Red'));
+                if (rainPill) rainPill.classList.toggle('hidden', !activeStatuses.includes('Rain'));
+            }
+
+            // Get pulsing color - oscillates between base color and white
+            getPulsingColor(baseColor) {
+                // Use real time for smooth animation regardless of playback speed
+                const pulseSpeed = 2; // Full cycle every ~3 seconds
+                const t = (Date.now() / 1000) * pulseSpeed;
+                const blend = 0.5 + 0.5 * Math.sin(t * Math.PI); // 0 to 1 (0 = white, 1 = base color)
+
+                // Parse base hex color
+                const r = parseInt(baseColor.slice(1, 3), 16);
+                const g = parseInt(baseColor.slice(3, 5), 16);
+                const b = parseInt(baseColor.slice(5, 7), 16);
+
+                // Interpolate between white (255,255,255) and base color
+                const nr = Math.round(255 + (r - 255) * blend);
+                const ng = Math.round(255 + (g - 255) * blend);
+                const nb = Math.round(255 + (b - 255) * blend);
+
+                return `#${nr.toString(16).padStart(2, '0')}${ng.toString(16).padStart(2, '0')}${nb.toString(16).padStart(2, '0')}`;
+            }
+
+            // Update track status from current time (called on every frame/scrub)
             rebuildTrackStatusSilently() {
-                // Reset all state
-                this.trackStatus.redFlag = false;
-                this.trackStatus.blueFlag = false;
-                this.trackStatus.yellowSectors.clear();
-                this.trackStatus.lastLoggedEventIndex = -1;
-                this.activeBlueFlagCars = {};
-
-                // Process all events up to current time silently
-                this.processTrackStatusForward(true);
-                this.lastProcessedStatusTime = this.currentTime;
-
-                // Update visuals
-                this.updateTrackColor();
-                this.updatePillsSilently();
-            }
-
-            // Update pill indicators without logging
-            updatePillsSilently() {
-                // Update active event pills based on TrackStatus state
-                const globalStatus = this.trackStatus.getGlobalStatus();
-                this.updateStatusPills(globalStatus);
+                const { statuses, yellowSectors, blueFlagDrivers } = this.getActiveStatuses();
+                this.updateTrackFromStatuses(statuses, yellowSectors, blueFlagDrivers);
             }
 
             // Process track status events forward from last processed index
@@ -2288,12 +2604,6 @@
                     } else if (status === 'VSCENDING') {
                         // VSC ending - will be followed by AllClear
                         changed |= this.trackStatus.setVSC(false);
-                    } else if (status === 'BLUE' || flagType === 'BLUE') {
-                        // Blue flag for specific driver (using structured field)
-                        if (driverNum) {
-                            this.activeBlueFlagCars[driverNum] = event.session_time;
-                            changed = true;
-                        }
                     } else if (status === 'YELLOW' || flagType === 'YELLOW' || flagType === 'DOUBLE YELLOW') {
                         // Yellow flag - use structured sector field if available
                         if (!this.trackStatus.redFlag && !this.trackStatus.safetyCar) {
@@ -2309,10 +2619,6 @@
                         changed |= this.trackStatus.setRedFlag(false);
                         changed |= this.trackStatus.setSafetyCar(false);
                         changed |= this.trackStatus.setVSC(false);
-                        if (Object.keys(this.activeBlueFlagCars).length > 0) {
-                            this.activeBlueFlagCars = {};
-                            changed = true;
-                        }
                         if (this.trackStatus.yellowSectors.size > 0) {
                             this.trackStatus.yellowSectors.clear();
                             changed = true;
@@ -2386,16 +2692,7 @@
                 if (redFlagPill) redFlagPill.classList.toggle('hidden', globalStatus !== 'RED');
             }
 
-            cleanupExpiredBlueFlags() {
-                // Remove blue flags older than 5 seconds
-                const currentTime = this.currentTime;
-                for (const carNum in this.activeBlueFlagCars) {
-                    const flagTime = this.activeBlueFlagCars[carNum];
-                    if (currentTime - flagTime > 5) {
-                        delete this.activeBlueFlagCars[carNum];
-                    }
-                }
-            }
+            // Blue flag cleanup is now handled by getActiveStatuses() with 3-second duration
 
             toggleChaseMode(driverCode) {
                 // Toggle chase mode: if already chasing this driver, disable; otherwise enable
@@ -2436,8 +2733,7 @@
                     }
 
                     // Reset zoom when entering follow mode
-                    this.currentZoom = 0.1;
-                    this.updateZoomDisplay();
+                    this.currentZoom = 1.0;
                 } else {
                     // Not in follow mode - show selectors, hide follow panel
                     followModePanel.classList.remove('visible');
@@ -2465,21 +2761,13 @@
                 this.updateStandings();
             }
 
-            adjustZoom(delta) {
-                if (!this.chaseMode) return;
-                this.currentZoom += delta;
-                // Clamp between 0.1 (full map) and 4.0 (maximum zoom)
-                this.currentZoom = Math.max(0.1, Math.min(4.0, this.currentZoom));
-                this.updateZoomDisplay();
-            }
-
-            updateZoomDisplay() {
-                const zoomDisplay = document.getElementById('zoomDisplay');
-                zoomDisplay.textContent = this.currentZoom.toFixed(1) + 'x';
-            }
-
             exitFollowMode() {
                 this.chaseMode = null;
+                // Reset overview zoom/pan when exiting follow mode
+                this.userZoom = 1.0;
+                this.panX = 0;
+                this.panY = 0;
+                this.canvas.style.cursor = 'default';
                 this.updateFollowMode();
                 this.updateStandings();
             }
@@ -2536,7 +2824,7 @@
                 // Find closest telemetry entry to current time
                 let idx = this.binarySearchTelemetryIndex(tel.session_time, this.currentTime);
                 if (idx >= 0 && idx < tel.status.length) {
-                    return tel.status[idx] === 'retired';
+                    return tel.status[idx] === 'Retired';  // Capital R - matches backend
                 }
                 return false;
             }
@@ -2594,6 +2882,20 @@
                 return left;
             }
 
+            /**
+             * Cubic Hermite interpolation for smooth car movement.
+             * p(t) = h00*p0 + h10*m0*dt + h01*p1 + h11*m1*dt
+             */
+            hermiteInterpolate(p0, p1, m0, m1, t, dt) {
+                const t2 = t * t;
+                const t3 = t2 * t;
+                const h00 = 2*t3 - 3*t2 + 1;
+                const h10 = t3 - 2*t2 + t;
+                const h01 = -2*t3 + 3*t2;
+                const h11 = t3 - t2;
+                return h00 * p0 + h10 * m0 * dt + h01 * p1 + h11 * m1 * dt;
+            }
+
             interpolateDriverPosition(telemetry, idx1) {
                 const time1 = telemetry.session_time[idx1];
                 const idx2 = idx1 + 1;
@@ -2620,7 +2922,7 @@
                 const timeDelta = time2 - time1;
 
                 // If samples are at same time, return first sample
-                if (timeDelta === 0) {
+                if (timeDelta <= 0) {
                     return {
                         x: telemetry.x[idx1],
                         y: telemetry.y[idx1],
@@ -2633,17 +2935,31 @@
                 }
 
                 // Calculate interpolation factor (0 to 1)
-                const t = (this.currentTime - time1) / timeDelta;
-                const factor = Math.max(0, Math.min(1, t)); // Clamp to [0, 1]
+                const t = Math.max(0, Math.min(1, (this.currentTime - time1) / timeDelta));
 
-                // Linear interpolation for x, y
-                const x = telemetry.x[idx1] + (telemetry.x[idx2] - telemetry.x[idx1]) * factor;
-                const y = telemetry.y[idx1] + (telemetry.y[idx2] - telemetry.y[idx1]) * factor;
+                // Check if velocity data is available for Hermite interpolation
+                const hasVelocity = telemetry.vx && telemetry.vy &&
+                                    idx1 < telemetry.vx.length && idx2 < telemetry.vx.length;
 
-                // Interpolate race_distance (progress) if available
+                let x, y;
+                if (hasVelocity) {
+                    // Cubic Hermite interpolation (smooth curves)
+                    const vx1 = telemetry.vx[idx1] || 0;
+                    const vy1 = telemetry.vy[idx1] || 0;
+                    const vx2 = telemetry.vx[idx2] || 0;
+                    const vy2 = telemetry.vy[idx2] || 0;
+                    x = this.hermiteInterpolate(telemetry.x[idx1], telemetry.x[idx2], vx1, vx2, t, timeDelta);
+                    y = this.hermiteInterpolate(telemetry.y[idx1], telemetry.y[idx2], vy1, vy2, t, timeDelta);
+                } else {
+                    // Fallback to linear interpolation
+                    x = telemetry.x[idx1] + (telemetry.x[idx2] - telemetry.x[idx1]) * t;
+                    y = telemetry.y[idx1] + (telemetry.y[idx2] - telemetry.y[idx1]) * t;
+                }
+
+                // Interpolate race_distance (progress) - linear is fine
                 let progress = telemetry.race_distance ? telemetry.race_distance[idx1] : 0;
                 if (telemetry.race_distance && idx2 < telemetry.race_distance.length) {
-                    progress = telemetry.race_distance[idx1] + (telemetry.race_distance[idx2] - telemetry.race_distance[idx1]) * factor;
+                    progress = telemetry.race_distance[idx1] + (telemetry.race_distance[idx2] - telemetry.race_distance[idx1]) * t;
                 }
 
                 // Use nearest interval value (don't interpolate)
@@ -3148,27 +3464,20 @@
                     return;
                 }
 
-                // Calculate bounds
-                let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-                for (let i = 0; i < this.trackData.x.length; i++) {
-                    minX = Math.min(minX, this.trackData.x[i]);
-                    maxX = Math.max(maxX, this.trackData.x[i]);
-                    minY = Math.min(minY, this.trackData.y[i]);
-                    maxY = Math.max(maxY, this.trackData.y[i]);
+                // Update pulsing track color every frame for smooth animation
+                if (this.trackPulsing && this.baseTrackColor) {
+                    this.trackColor = this.getPulsingColor(this.baseTrackColor);
                 }
 
-                if (this.pitLaneData) {
-                    for (let i = 0; i < this.pitLaneData.x.length; i++) {
-                        minX = Math.min(minX, this.pitLaneData.x[i]);
-                        maxX = Math.max(maxX, this.pitLaneData.x[i]);
-                        minY = Math.min(minY, this.pitLaneData.y[i]);
-                        maxY = Math.max(maxY, this.pitLaneData.y[i]);
-                    }
+                // Use cached bounds or calculate if not available
+                if (!this.rotBounds) {
+                    this.calculateBaseScale();
                 }
+                if (!this.rotBounds) return; // Still no bounds, can't render
 
-                const centerX = (minX + maxX) / 2;
-                const centerY = (minY + maxY) / 2;
-                const rotRad = this.rotation;  // FastF1 rotation convention: positive = counter-clockwise
+                const centerX = this.trackCenterX;
+                const centerY = this.trackCenterY;
+                const rotRad = this.rotation;
                 const cos = Math.cos(rotRad);
                 const sin = Math.sin(rotRad);
 
@@ -3180,29 +3489,13 @@
                     return { x: rotX, y: rotY };
                 };
 
-                // Calculate rotated bounds
-                let rotMinX = Infinity, rotMaxX = -Infinity, rotMinY = Infinity, rotMaxY = -Infinity;
-                for (let i = 0; i < this.trackData.x.length; i++) {
-                    const p = transform(this.trackData.x[i], this.trackData.y[i]);
-                    rotMinX = Math.min(rotMinX, p.x);
-                    rotMaxX = Math.max(rotMaxX, p.x);
-                    rotMinY = Math.min(rotMinY, p.y);
-                    rotMaxY = Math.max(rotMaxY, p.y);
-                }
-
-                const rotWidth = rotMaxX - rotMinX;
-                const rotHeight = rotMaxY - rotMinY;
-
-                // Canvas is now in a centered flexbox container (body-main)
-                // Use the full canvas dimensions with some padding
-                const padding = 40;
-                const availWidth = width - padding * 2;
-                const availHeight = height - padding * 2;
+                const centerCanvasX = width / 2;
+                const centerCanvasY = height / 2;
 
                 let chaseCenterX = null;
                 let chaseCenterY = null;
 
-                // In chase mode, find the chased driver's position and use that as the focal point
+                // In chase mode, find the chased driver's position
                 if (this.chaseMode && this.hasSessionData) {
                     const positions = this.getDriversAtTime();
                     const chasingDriver = positions.find(p => p.code === this.chaseMode);
@@ -3212,28 +3505,19 @@
                     }
                 }
 
-                // Calculate scale and offset
+                // Calculate scale and offset based on mode
                 if (chaseCenterX !== null && chaseCenterY !== null) {
-                    // Chase mode: zoom in on the driver with some padding
-                    this.scale = this.currentZoom;
-
-                    // Transform the chase point
+                    // Chase mode: zoom centered on driver
+                    this.scale = this.baseScale * this.currentZoom;
                     const chasedPos = transform(chaseCenterX, chaseCenterY);
-                    const centerCanvasX = width / 2;
-                    const centerCanvasY = height / 2;
                     this.offsetX = centerCanvasX - chasedPos.x * this.scale;
                     this.offsetY = centerCanvasY + chasedPos.y * this.scale;
                 } else {
-                    // Overview mode: show entire track
-                    const scaleX = availWidth / rotWidth;
-                    const scaleY = availHeight / rotHeight;
-                    this.scale = Math.min(scaleX, scaleY);
-
-                    // Center on the canvas
-                    const centerCanvasX = width / 2;
-                    const centerCanvasY = height / 2;
-                    this.offsetX = centerCanvasX - (rotMinX + rotWidth / 2) * this.scale;
-                    this.offsetY = centerCanvasY + (rotMaxY - rotHeight / 2) * this.scale;
+                    // Overview mode: apply user zoom and pan
+                    this.scale = this.baseScale * this.userZoom;
+                    // Base centering + user pan offset
+                    this.offsetX = centerCanvasX - (this.rotBounds.centerX - this.panX) * this.scale;
+                    this.offsetY = centerCanvasY + (this.rotBounds.centerY + this.panY) * this.scale;
                 }
 
                 const screenTransform = (px, py) => {
@@ -3400,7 +3684,7 @@
                         const p = screenTransform(pos.x, pos.y);
 
                         // Blue flag outline (before main glow so it's behind)
-                        if (pos.number in this.activeBlueFlagCars) {
+                        if (this.blueFlagDrivers.has(pos.number)) {
                             this.ctx.strokeStyle = '#3399FF';
                             this.ctx.lineWidth = 3;
                             this.ctx.shadowColor = '#3399FF';
@@ -3456,33 +3740,40 @@
             }
 
             handleKnobDrag(e) {
-                if (!this.isDraggingKnob || this.maxTime === 0) return;
+                const duration = this.maxTime - this.minTime;
+                if (!this.isDraggingKnob || duration <= 0) return;
 
                 const track = document.getElementById('raceProgressTrack');
                 const rect = track.getBoundingClientRect();
                 const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
                 const fraction = x / rect.width;
-                this.currentTime = fraction * this.maxTime;
+                this.currentTime = this.minTime + fraction * duration;
 
                 this.updateProgressBar();
+                // Always rebuild track status from scratch when scrubbing
+                this.rebuildTrackStatusSilently();
             }
 
             seekToClick(e) {
-                if (this.maxTime === 0) return;
+                const duration = this.maxTime - this.minTime;
+                if (duration <= 0) return;
 
                 const track = document.getElementById('raceProgressTrack');
                 const rect = track.getBoundingClientRect();
                 const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
                 const fraction = x / rect.width;
-                this.currentTime = fraction * this.maxTime;
+                this.currentTime = this.minTime + fraction * duration;
 
                 this.updateProgressBar();
+                // Always rebuild track status from scratch when seeking
+                this.rebuildTrackStatusSilently();
             }
 
             updateProgressBar() {
-                if (this.maxTime === 0) return;
+                const duration = this.maxTime - this.minTime;
+                if (duration <= 0) return;
 
-                const fraction = Math.min(1, Math.max(0, this.currentTime / this.maxTime));
+                const fraction = Math.min(1, Math.max(0, (this.currentTime - this.minTime) / duration));
                 const fillEl = document.getElementById('raceProgressFill');
                 const knobEl = document.getElementById('raceProgressKnob');
 
@@ -3513,15 +3804,18 @@
                         }
                     }
 
-                    document.getElementById('raceTimer').textContent = this.formatTime(this.currentTime);
+                    // Show race time from lights out (formation lap shows --:--:--)
+                    const timerEl = document.getElementById('raceTimer');
+                    if (this.currentTime < this.lightsOutTime) {
+                        timerEl.textContent = '--:--:--';
+                    } else {
+                        timerEl.textContent = this.formatTime(this.currentTime - this.lightsOutTime);
+                    }
 
                     // Update progress bar (only when not dragging)
                     if (!this.isDraggingKnob) {
                         this.updateProgressBar();
                     }
-
-                    // Clean up expired blue flags
-                    this.cleanupExpiredBlueFlags();
 
                     // Update track status (logs only when status changes)
                     this.updateTrackStatus();

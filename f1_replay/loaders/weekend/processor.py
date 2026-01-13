@@ -8,7 +8,7 @@ Track/pit geometry is extracted during weekend build (not deferred to session).
 from typing import Optional, Union
 import numpy as np
 from f1_replay.models import (
-    F1Weekend, CircuitData, TrackGeometry, EventInfo, SessionInfo, PitLane, DirectionArrow, MarshalSector
+    F1Weekend, CircuitData, TrackGeometry, EventInfo, SessionInfo, PitLane, DirectionArrow, MarshalSector, Corner
 )
 from f1_replay.loaders.core.client import FastF1Client
 from f1_replay.loaders.weekend.light_telemetry import LightTelemetryBuilder
@@ -245,7 +245,7 @@ class WeekendProcessor:
 
             # Extract marshal sectors by projecting X,Y onto track
             if track_data is not None:
-                track_data = self._add_marshal_sectors(session, track_data)
+                track_data = self._add_circuit_info(session, track_data)
 
             return track_data
 
@@ -265,59 +265,70 @@ class WeekendProcessor:
             pass
         return None
 
-    def _add_marshal_sectors(self, f1_session, track_data: TrackData) -> TrackData:
+    def _add_circuit_info(self, f1_session, track_data: TrackData) -> TrackData:
         """
-        Extract marshal sectors from circuit_info by projecting X,Y onto track.
+        Extract marshal sectors and corners from circuit_info.
 
-        Uses our internal track distance (cumulative Euclidean distance) for consistency.
+        Projects X,Y coordinates onto track using our internal track distance.
         """
         try:
             circuit_info = f1_session.get_circuit_info()
-            if circuit_info is None or not hasattr(circuit_info, 'marshal_sectors'):
-                return track_data
-
-            marshal_df = circuit_info.marshal_sectors
-            if marshal_df is None or len(marshal_df) == 0:
+            if circuit_info is None:
                 return track_data
 
             track_x = track_data.track_x
             track_y = track_data.track_y
             track_dist = track_data.track_distance  # decimeters
             lap_distance_dm = track_data.lap_distance
-
-            # Marshal sectors have X, Y coordinates (decimeters)
-            sector_nums = marshal_df['Number'].values.astype(np.int32)
-            sector_x = marshal_df['X'].values.astype(np.float32)
-            sector_y = marshal_df['Y'].values.astype(np.float32)
-
-            # Project each sector boundary onto track (find closest track point)
-            dist_sq = (sector_x[:, None] - track_x[None, :])**2 + (sector_y[:, None] - track_y[None, :])**2
-            closest_indices = np.argmin(dist_sq, axis=1)
-
-            # Get track distances at closest points (convert to meters)
-            dist_meters = track_dist[closest_indices] / 10.0
-
-            # Build (sector_num, dist) pairs and sort by distance
-            sector_distances = list(zip(sector_nums, dist_meters))
-            sector_distances.sort(key=lambda x: x[1])
-
-            # Build sector ranges (from current to next boundary)
-            marshal_sectors = []
             lap_distance_m = lap_distance_dm / 10.0
 
-            for i, (sector_num, from_dist) in enumerate(sector_distances):
-                if i + 1 < len(sector_distances):
-                    to_dist = sector_distances[i + 1][1]
-                else:
-                    # Last sector wraps to first
-                    to_dist = lap_distance_m + sector_distances[0][1]
+            marshal_sectors = None
+            corners = None
 
-                marshal_sectors.append((sector_num, from_dist, to_dist))
+            # Extract marshal sectors
+            if hasattr(circuit_info, 'marshal_sectors') and circuit_info.marshal_sectors is not None:
+                marshal_df = circuit_info.marshal_sectors
+                if len(marshal_df) > 0:
+                    sector_nums = marshal_df['Number'].values.astype(np.int32)
+                    sector_x = marshal_df['X'].values.astype(np.float32)
+                    sector_y = marshal_df['Y'].values.astype(np.float32)
 
-            if marshal_sectors:
-                print(f"    ✓ Marshal sectors: {len(marshal_sectors)}")
+                    # Project onto track
+                    dist_sq = (sector_x[:, None] - track_x[None, :])**2 + (sector_y[:, None] - track_y[None, :])**2
+                    closest_indices = np.argmin(dist_sq, axis=1)
+                    dist_meters = track_dist[closest_indices] / 10.0
 
-            # Return new TrackData with marshal_sectors
+                    sector_distances = sorted(zip(sector_nums, dist_meters), key=lambda x: x[1])
+
+                    marshal_sectors = []
+                    for i, (sector_num, from_dist) in enumerate(sector_distances):
+                        to_dist = sector_distances[i + 1][1] if i + 1 < len(sector_distances) else lap_distance_m + sector_distances[0][1]
+                        marshal_sectors.append((sector_num, from_dist, to_dist))
+
+                    print(f"    ✓ Marshal sectors: {len(marshal_sectors)}")
+
+            # Extract corners
+            if hasattr(circuit_info, 'corners') and circuit_info.corners is not None:
+                corners_df = circuit_info.corners
+                if len(corners_df) > 0:
+                    corner_nums = corners_df['Number'].values.astype(np.int32)
+                    corner_x = corners_df['X'].values.astype(np.float32)
+                    corner_y = corners_df['Y'].values.astype(np.float32)
+                    corner_angles = corners_df['Angle'].values.astype(np.float32)
+                    corner_letters = corners_df['Letter'].values if 'Letter' in corners_df.columns else [''] * len(corner_nums)
+
+                    # Project onto track
+                    dist_sq = (corner_x[:, None] - track_x[None, :])**2 + (corner_y[:, None] - track_y[None, :])**2
+                    closest_indices = np.argmin(dist_sq, axis=1)
+                    dist_meters = track_dist[closest_indices] / 10.0
+
+                    corners = []
+                    for i, num in enumerate(corner_nums):
+                        letter = str(corner_letters[i]) if corner_letters[i] and str(corner_letters[i]) != 'nan' else ''
+                        corners.append((int(num), float(dist_meters[i]), float(corner_angles[i]), letter))
+
+                    print(f"    ✓ Corners: {len(corners)}")
+
             return TrackData(
                 track_x=track_data.track_x,
                 track_y=track_data.track_y,
@@ -330,6 +341,7 @@ class WeekendProcessor:
                 pit_entry_distance=track_data.pit_entry_distance,
                 pit_exit_distance=track_data.pit_exit_distance,
                 marshal_sectors=marshal_sectors,
+                corners=corners,
                 speed=track_data.speed,
                 throttle=track_data.throttle,
                 brake=track_data.brake,
@@ -337,7 +349,7 @@ class WeekendProcessor:
             )
 
         except Exception as e:
-            print(f"    ⚠ Could not extract marshal sectors: {e}")
+            print(f"    ⚠ Could not extract circuit info: {e}")
             return track_data
 
     def _build_complete_circuit(self, track_data: TrackData, circuit_name: str,
@@ -352,9 +364,20 @@ class WeekendProcessor:
         if track_data.marshal_sectors:
             for sector_num, from_dist, to_dist in track_data.marshal_sectors:
                 marshal_sectors.append(MarshalSector(
-                    sector=int(sector_num),
-                    from_dist=float(from_dist),
-                    to_dist=float(to_dist)
+                    number=int(sector_num),
+                    start_distance=float(from_dist),
+                    end_distance=float(to_dist)
+                ))
+
+        # Convert corner tuples to Corner objects
+        corners = []
+        if track_data.corners:
+            for number, distance, angle, letter in track_data.corners:
+                corners.append(Corner(
+                    number=number,
+                    distance=distance,
+                    angle=angle,
+                    letter=letter
                 ))
 
         # Build TrackGeometry
@@ -424,9 +447,8 @@ class WeekendProcessor:
         return CircuitData(
             track=track,
             pit_lane=pit_lane,
-            track_segments=[],
             circuit_length=circuit_length_meters,
-            corners=0,
+            corners=corners,
             rotation=rotation_deg,
             name=circuit_name,
             direction_arrow=direction_arrow,
@@ -449,9 +471,8 @@ class WeekendProcessor:
         circuit = CircuitData(
             track=placeholder_track,
             pit_lane=None,
-            track_segments=[],
             circuit_length=circuit_length,
-            corners=0,
+            corners=[],
             rotation=rotation_deg,
             name=circuit_name,
             metadata={'source': 'weekend_placeholder'}

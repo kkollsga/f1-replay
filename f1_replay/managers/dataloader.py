@@ -348,9 +348,9 @@ class DataLoader:
         if track_data.marshal_sectors:
             for sector_num, from_dist, to_dist in track_data.marshal_sectors:
                 marshal_sectors.append(MarshalSector(
-                    sector=sector_num,
-                    from_dist=from_dist,
-                    to_dist=to_dist
+                    number=sector_num,
+                    start_distance=from_dist,
+                    end_distance=to_dist
                 ))
 
         # Build TrackGeometry from track_data (with meters)
@@ -436,7 +436,6 @@ class DataLoader:
         new_circuit = CircuitData(
             track=track,
             pit_lane=pit_lane,
-            track_segments=weekend.circuit.track_segments,
             circuit_length=circuit_length_meters,
             corners=weekend.circuit.corners,
             rotation=final_rotation,

@@ -36,6 +36,7 @@ class TrackData:
     pit_entry_distance: Optional[float] = None  # Track distance at pit entry (meters)
     pit_exit_distance: Optional[float] = None   # Track distance at pit exit (meters)
     marshal_sectors: Optional[list] = None  # List of (sector_num, from_dist, to_dist) in meters
+    corners: Optional[list] = None  # List of (number, distance_m, angle, letter)
     # Reference lap telemetry (from winner's fastest lap)
     speed: Optional[np.ndarray] = None  # km/h
     throttle: Optional[np.ndarray] = None  # 0-100%
@@ -205,6 +206,9 @@ class TelemetryBuilder:
             'is_dnf': is_dnf
         }
 
+        # Add velocity vectors for smooth interpolation
+        telemetry_df = TelemetryBuilder._add_velocity_vectors(telemetry_df)
+
         # Convert to Polars (status will be updated later by SessionProcessor)
         return pl.from_pandas(telemetry_df), status_data
 
@@ -323,6 +327,98 @@ class TelemetryBuilder:
                 result[dst_col] = 0
 
         return result
+
+    @staticmethod
+    def _add_velocity_vectors(telemetry_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Compute velocity vectors (vx, vy) using central differences for smooth Hermite interpolation.
+
+        Central differences: v[i] = (p[i+1] - p[i-1]) / (t[i+1] - t[i-1])
+        Boundary handling: forward/backward differences at edges.
+        Large time gaps (>2s): zero velocity at boundaries (pit stops, stoppages).
+
+        Args:
+            telemetry_df: Telemetry DataFrame with session_time, x, y columns
+
+        Returns:
+            DataFrame with vx, vy columns added (decimeters/second)
+        """
+        n = len(telemetry_df)
+        if n < 2:
+            telemetry_df['vx'] = 0.0
+            telemetry_df['vy'] = 0.0
+            return telemetry_df
+
+        x = telemetry_df['x'].values.astype(np.float64)
+        y = telemetry_df['y'].values.astype(np.float64)
+        t = telemetry_df['session_time'].values.astype(np.float64)
+
+        vx = np.zeros(n, dtype=np.float32)
+        vy = np.zeros(n, dtype=np.float32)
+
+        # Central differences for interior points
+        if n >= 3:
+            dt = t[2:] - t[:-2]
+            dt = np.where(dt > 0, dt, 0.001)  # Avoid division by zero
+            vx[1:-1] = (x[2:] - x[:-2]) / dt
+            vy[1:-1] = (y[2:] - y[:-2]) / dt
+
+        # Forward difference for first point
+        dt0 = t[1] - t[0]
+        if dt0 > 0:
+            vx[0] = (x[1] - x[0]) / dt0
+            vy[0] = (y[1] - y[0]) / dt0
+
+        # Backward difference for last point
+        dt_last = t[-1] - t[-2]
+        if dt_last > 0:
+            vx[-1] = (x[-1] - x[-2]) / dt_last
+            vy[-1] = (y[-1] - y[-2]) / dt_last
+
+        # Handle large time gaps (pit stops, stoppages) - zero velocity at boundaries
+        MAX_GAP = 2.0
+        dt_forward = np.diff(t, prepend=t[0])
+        gap_mask = dt_forward > MAX_GAP
+        vx[gap_mask] = 0.0
+        vy[gap_mask] = 0.0
+        # Also zero the point before a gap
+        gap_indices = np.where(gap_mask)[0]
+        for idx in gap_indices:
+            if idx > 0:
+                vx[idx - 1] = 0.0
+                vy[idx - 1] = 0.0
+
+        # Clamp extreme velocities (max ~100 m/s = 1000 dm/s)
+        MAX_VEL = 1000.0
+        vx = np.clip(vx, -MAX_VEL, MAX_VEL)
+        vy = np.clip(vy, -MAX_VEL, MAX_VEL)
+
+        # Smooth velocity vectors to reduce noise-induced oscillations
+        # Use exponential moving average (EMA) with alpha ~0.3 for good smoothing
+        # Apply forward then backward pass for zero-lag smoothing
+        def smooth_ema_bidirectional(arr, alpha=0.3):
+            if len(arr) < 3:
+                return arr
+            # Forward pass
+            fwd = np.zeros_like(arr)
+            fwd[0] = arr[0]
+            for i in range(1, len(arr)):
+                fwd[i] = alpha * arr[i] + (1 - alpha) * fwd[i - 1]
+            # Backward pass
+            bwd = np.zeros_like(arr)
+            bwd[-1] = arr[-1]
+            for i in range(len(arr) - 2, -1, -1):
+                bwd[i] = alpha * arr[i] + (1 - alpha) * bwd[i + 1]
+            # Average forward and backward for zero-lag result
+            return (fwd + bwd) / 2
+
+        vx = smooth_ema_bidirectional(vx)
+        vy = smooth_ema_bidirectional(vy)
+
+        telemetry_df['vx'] = vx.astype(np.float32)
+        telemetry_df['vy'] = vy.astype(np.float32)
+
+        return telemetry_df
 
     @staticmethod
     def _add_lap_info(telemetry_df: pd.DataFrame, driver_laps: Optional[pd.DataFrame]) -> tuple:
@@ -894,6 +990,8 @@ class TelemetryBuilder:
                     warmup_start_idx = np.where(warmup_mask)[0][0]
 
             # Detect finish line crossings: track_distance drops by >80% of track length
+            # Minimum time between valid lap completions (filters spurious wraps from pit projection)
+            MIN_LAP_TIME = 60.0  # seconds
             finish_crossings = np.zeros(len(track_distance), dtype=np.int32)
             first_wrap_idx = None
 
@@ -906,6 +1004,19 @@ class TelemetryBuilder:
                 # The first wrap after warmup_start is when racing begins (end of formation lap)
                 if len(wrap_indices) > 0:
                     wraps_after_warmup = wrap_indices[wrap_indices >= warmup_start_idx]
+
+                    # Filter wraps to only include those at least MIN_LAP_TIME apart
+                    # This prevents false lap counts from pit lane projection noise
+                    if len(wraps_after_warmup) > 0:
+                        valid_wraps = [wraps_after_warmup[0]]
+                        last_wrap_time = session_times[wraps_after_warmup[0]]
+                        for wrap_idx in wraps_after_warmup[1:]:
+                            wrap_time = session_times[wrap_idx]
+                            if wrap_time - last_wrap_time >= MIN_LAP_TIME:
+                                valid_wraps.append(wrap_idx)
+                                last_wrap_time = wrap_time
+                        wraps_after_warmup = np.array(valid_wraps)
+
                     if len(wraps_after_warmup) > 0:
                         first_wrap_idx = wraps_after_warmup[0]
 

@@ -96,7 +96,8 @@ def serialize_telemetry(telemetry_dict: Dict[str, pl.DataFrame],
         fields = [
             'session_time', 'lap_number', 'x', 'y',
             'track_distance', 'race_distance', 'position', 'interval',
-            'status', 'compound', 'tyre_life', 'speed'
+            'status', 'compound', 'tyre_life', 'speed',
+            'vx', 'vy'  # Velocity vectors for Hermite interpolation
         ]
 
     # Fields that should be rounded to reduce JSON size
@@ -108,6 +109,8 @@ def serialize_telemetry(telemetry_dict: Dict[str, pl.DataFrame],
         'race_distance': 1,   # 0.1m precision
         'interval': 3,        # 0.001s precision
         'speed': 1,           # 0.1 km/h precision
+        'vx': 1,              # 0.1 dm/s precision
+        'vy': 1,              # 0.1 dm/s precision
     }
 
     result = {}

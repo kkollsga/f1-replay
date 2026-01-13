@@ -8,7 +8,7 @@ Manages session loading/unloading for memory efficiency.
 from typing import TYPE_CHECKING, Dict, List, Optional, Callable
 import numpy as np
 
-from f1_replay.models import F1Weekend, EventInfo, CircuitData, TrackGeometry, TrackSegment, PitLane, DirectionArrow
+from f1_replay.models import F1Weekend, EventInfo, CircuitData, TrackGeometry, MarshalSector, PitLane, DirectionArrow
 
 if TYPE_CHECKING:
     from f1_replay.wrappers.session import Session
@@ -164,9 +164,9 @@ class RaceWeekend:
         return self._data.circuit.rotation
 
     @property
-    def track_segments(self) -> List[TrackSegment]:
-        """Track segments (sectors, DRS zones)."""
-        return self._data.circuit.track_segments
+    def marshal_sectors(self) -> List[MarshalSector]:
+        """Marshal sectors (yellow flag zones)."""
+        return self._data.circuit.track.marshal_sectors
 
     @property
     def direction_arrow(self) -> Optional[DirectionArrow]:
@@ -204,13 +204,9 @@ class RaceWeekend:
             'lap_distance': float(pit.length)
         }
 
-    def get_sectors(self) -> List[TrackSegment]:
+    def get_marshal_sectors(self) -> List[MarshalSector]:
         """Get marshal sectors."""
-        return [seg for seg in self._data.circuit.track_segments if seg.segment_type == 'sector']
-
-    def get_drs_zones(self) -> List[TrackSegment]:
-        """Get DRS zones."""
-        return [seg for seg in self._data.circuit.track_segments if seg.segment_type == 'drs_zone']
+        return self._data.circuit.track.marshal_sectors
 
     # =========================================================================
     # Session Management (load/unload for memory efficiency)

@@ -21,8 +21,8 @@ from f1_replay.models.event import (
 
 # TIER 2: Weekend and circuit
 from f1_replay.models.weekend import (
-    TrackSegment,
     MarshalSector,
+    Corner,
     TrackGeometry,
     DirectionArrow,
     PitLane,
@@ -61,8 +61,8 @@ __all__ = [
     'format_date_range',
     'get_location_dir',
     # TIER 2
-    'TrackSegment',
     'MarshalSector',
+    'Corner',
     'TrackGeometry',
     'DirectionArrow',
     'PitLane',

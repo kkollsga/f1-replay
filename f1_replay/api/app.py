@@ -42,40 +42,6 @@ from f1_replay.wrappers import RaceWeekend, Session, create_session
 from f1_replay.api.serializers import to_json_safe, serialize_telemetry
 
 
-def _get_circuit_info(year: int, round_num: int) -> Optional[dict]:
-    """
-    Load circuit corner info from FastF1.
-
-    Returns dict with corners list or None if unavailable.
-    """
-    try:
-        import fastf1
-        session = fastf1.get_session(year, round_num, 'R')
-        session.load(telemetry=False, laps=True, weather=False, messages=False)
-
-        result = {'corners': []}
-
-        # Get circuit info
-        ci = session.get_circuit_info()
-
-        # Extract corners with positions
-        if hasattr(ci, 'corners') and ci.corners is not None:
-            for _, row in ci.corners.iterrows():
-                result['corners'].append({
-                    'number': int(row.get('Number', 0)),
-                    'letter': row.get('Letter', ''),
-                    'x': float(row.get('X', 0)),
-                    'y': float(row.get('Y', 0)),
-                    'angle': float(row.get('Angle', 0)),
-                    'distance': float(row.get('Distance', 0)) if row.get('Distance') is not None and not (isinstance(row.get('Distance'), float) and row.get('Distance') != row.get('Distance')) else None
-                })
-
-        return result
-    except Exception as e:
-        print(f"Could not load circuit info: {e}")
-        return None
-
-
 def _get_scheduled_session_info(data_loader: DataLoader, year: int, round_num: int, session_type: str) -> Optional[dict]:
     """
     Get scheduled session info for a future race.
@@ -254,14 +220,13 @@ def create_app(data_loader: DataLoader, current_session: Optional[Session] = Non
 
         Returns:
             {
-                "metadata": {...},
+                "event": {...},
                 "circuit": {
-                    "track": {...},
+                    "track": {marshal_sectors: [{number, start_distance, end_distance}, ...]},
                     "pit_lane": {...},
                     "circuit_length": float,
                     "rotation": float,
-                    "corners": int,
-                    "track_segments": [...]
+                    "corners": [{number, distance, angle, letter}, ...]
                 }
             }
         """
@@ -284,17 +249,9 @@ def create_app(data_loader: DataLoader, current_session: Optional[Session] = Non
                 app.config['WEEKEND_CACHE'][cache_key] = weekend_data
 
             # Direct serialization of F1Weekend (EventInfo + CircuitData)
-            # Check if we need to load additional circuit info (corners)
-            corners = []
-            if weekend_data.circuit.corners == 0 if weekend_data.circuit else True:
-                circuit_info = _get_circuit_info(year, round_num)
-                if circuit_info:
-                    corners = circuit_info.get('corners', [])
-
             return fast_jsonify({
                 'event': to_json_safe(weekend_data.event),
                 'circuit': to_json_safe(weekend_data.circuit),
-                'corners': corners  # Additional corner data from FastF1
             })
 
         except Exception as e:

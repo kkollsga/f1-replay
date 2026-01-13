@@ -16,24 +16,27 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
-class TrackSegment(F1DataMixin):
-    """A segment of track (marshal sector, DRS zone, etc.)."""
-    name: str  # "Sector 1", "DRS Zone 1"
-    start_distance: float  # meters
-    end_distance: float    # meters
-    segment_type: str  # "sector", "drs_zone"
-    metadata: Dict[str, Any] = field(default_factory=dict)
+class MarshalSector(F1DataMixin):
+    """Marshal sector boundary (used for yellow flag zones)."""
+    number: int  # Sector number (1-based)
+    start_distance: float  # Start distance in meters
+    end_distance: float  # End distance in meters
+
+    def __repr__(self) -> str:
+        return f"MarshalSector({self.number}: {self.start_distance:.0f}m-{self.end_distance:.0f}m)"
 
 
 @dataclass(frozen=True)
-class MarshalSector(F1DataMixin):
-    """Marshal sector boundary."""
-    sector: int  # Sector number (1-based)
-    from_dist: float  # Start distance in meters
-    to_dist: float  # End distance in meters
+class Corner(F1DataMixin):
+    """Track corner marker."""
+    number: int  # Corner number (1-based)
+    distance: float  # Track distance in meters
+    angle: float  # Corner angle in degrees
+    letter: str = ""  # Optional letter suffix (e.g., 'A', 'B' for chicanes)
 
     def __repr__(self) -> str:
-        return f"MarshalSector({self.sector}: {self.from_dist:.0f}m-{self.to_dist:.0f}m)"
+        suffix = self.letter if self.letter else ""
+        return f"Corner({self.number}{suffix} @ {self.distance:.0f}m, {self.angle:.0f}°)"
 
 
 @dataclass(frozen=True)
@@ -272,14 +275,14 @@ class TrackGeometry(F1DataMixin):
         # Find the sector
         sector_info = None
         for s in self.marshal_sectors:
-            if s.sector == sector:
+            if s.number == sector:
                 sector_info = s
                 break
 
         if sector_info is None:
             return None
 
-        return self._extract_segment(sector_info.from_dist, sector_info.to_dist)
+        return self._extract_segment(sector_info.start_distance, sector_info.end_distance)
 
     def get_all_sectors(self) -> List[tuple]:
         """
@@ -293,9 +296,9 @@ class TrackGeometry(F1DataMixin):
 
         result = []
         for sector in self.marshal_sectors:
-            segment = self._extract_segment(sector.from_dist, sector.to_dist)
+            segment = self._extract_segment(sector.start_distance, sector.end_distance)
             if segment:
-                result.append((sector.sector, segment[0], segment[1]))
+                result.append((sector.number, segment[0], segment[1]))
         return result
 
     def _extract_segment(self, from_dist: float, to_dist: float) -> Optional[tuple]:
@@ -402,9 +405,8 @@ class CircuitData(F1DataMixin):
     """
     track: TrackGeometry  # Track outline
     pit_lane: Optional[PitLane] = None  # Pit lane with entry/exit
-    track_segments: List[TrackSegment] = field(default_factory=list)  # Marshal sectors
     circuit_length: float = 0.0  # Total track length (meters)
-    corners: int = 0  # Number of corners
+    corners: List[Corner] = field(default_factory=list)  # Corner markers
     rotation: float = 0.0  # Track rotation in degrees (from FastF1)
     name: str = ""  # Circuit name (e.g., "Albert Park", "Bahrain International Circuit")
     direction_arrow: Optional[DirectionArrow] = None  # Arrow showing racing direction
