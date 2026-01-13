@@ -1041,10 +1041,11 @@ class TelemetryBuilder:
                 # No wraps detected, everything after warmup_start is warmup
                 new_lap_numbers[warmup_start_idx:] = 0
 
-            # Calculate race_distance = finish_crossings * track_length + track_distance
-            # This equals track_distance before any laps are completed (finish_crossings=0)
+            # Calculate race_distance = (lap_number - 1) * track_length + track_distance
+            # This gives negative values during warmup (lap 0), starting at 0 for lap 1
+            # PreSession (lap -1): very negative, Warmup (lap 0): -track_length to 0, Lap 1+: 0 onwards
             # Note: race_distance freezing happens in _add_status_all() after status is determined
-            race_distance = (finish_crossings * lap_distance_m + track_distance).astype(np.float32)
+            race_distance = ((new_lap_numbers - 1) * lap_distance_m + track_distance).astype(np.float32)
 
             # Add/update columns to telemetry (status updated later by SessionProcessor)
             updated[driver] = (
@@ -1095,10 +1096,10 @@ class TelemetryBuilder:
             pit_windows = status_data.get('pit_windows', [])
             is_dnf = status_data.get('is_dnf', False)
 
-            # Extract arrays
-            lap_numbers = tel['lap_number'].to_numpy()
+            # Extract arrays (copy arrays we'll modify)
+            lap_numbers = tel['lap_number'].to_numpy().copy()
             session_times = tel['session_time'].to_numpy()
-            race_distance = tel['race_distance'].to_numpy().copy()  # Copy for modification
+            race_distance = tel['race_distance'].to_numpy().copy()
             x = tel['x'].to_numpy()
             y = tel['y'].to_numpy()
             z = tel['z'].to_numpy() if 'z' in tel.columns else np.zeros(len(tel))
@@ -1190,26 +1191,35 @@ class TelemetryBuilder:
             choices = ['PreSession', 'Retired', 'Finished', 'Pit', 'WarmUp']
             status = np.select(conditions, choices, default='Racing')
 
-            # Freeze race_distance when Finished/Retired
+            # lap_number comes from wrap detection in _add_track_distance_all() as single source of truth
+            # Do NOT modify lap_numbers here - only freeze values for Finished/Retired below
+
+            # Freeze race_distance and lap_number when Finished/Retired
+            # Use values from just BEFORE the status change (wrap detection increments at finish line)
             if np.any(is_finished):
                 first_finish_idx = np.where(is_finished)[0][0]
-                # Use value from just BEFORE finishing (track_distance wraps at finish)
                 if first_finish_idx > 0:
                     finish_race_distance = race_distance[first_finish_idx - 1]
+                    finish_lap_number = lap_numbers[first_finish_idx - 1]
                 else:
                     finish_race_distance = race_distance[first_finish_idx]
+                    finish_lap_number = lap_numbers[first_finish_idx]
                 race_distance[is_finished] = finish_race_distance
+                lap_numbers[is_finished] = finish_lap_number
 
             if np.any(is_retired):
                 first_retire_idx = np.where(is_retired)[0][0]
                 retire_race_distance = race_distance[first_retire_idx]
+                retire_lap_number = lap_numbers[first_retire_idx]
                 race_distance[is_retired] = retire_race_distance
+                lap_numbers[is_retired] = retire_lap_number
 
-            # Update telemetry with updated status and frozen race_distance
+            # Update telemetry with updated status, frozen race_distance and lap_number
             updated[driver] = (
                 tel.lazy()
                 .with_columns(pl.Series('status', status))
                 .with_columns(pl.Series('race_distance', race_distance))
+                .with_columns(pl.Series('lap_number', lap_numbers))
                 .collect()
             )
 

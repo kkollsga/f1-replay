@@ -1,10 +1,11 @@
 """
 Order Builder - Adds position and interval columns to driver telemetry.
 
-Position calculation:
-- During race: rank by race_distance (highest = P1)
-- Final positions: determined by finish order (first to finish = P1)
-- Lapped finishers: ranked after all full-distance finishers
+Position calculation (sorted together):
+1. More laps = better position
+2. Same laps: finished drivers always ahead of racers
+3. Same laps + both finished: earlier finish_time = better
+4. Same laps + both racing: higher race_distance = better
 
 Interval calculation:
 - For P1: interval = 0
@@ -24,10 +25,11 @@ class OrderBuilder:
         """
         Add position column to each driver's telemetry.
 
-        Position calculation:
-        - Extract finish order from finish times (who crossed first = P1)
-        - Lapped finishers are ranked after full-distance finishers
-        - Non-finished drivers: rank by race_distance + offset
+        Position calculation (everyone sorted together):
+        1. More laps = better position
+        2. Same laps: finished drivers always ahead of racers
+        3. Same laps + both finished: earlier finish_time = better
+        4. Same laps + both racing: higher race_distance = better
 
         Args:
             telemetry: Dict mapping driver code -> telemetry DataFrame
@@ -49,9 +51,10 @@ class OrderBuilder:
 
             cols = ["session_time", "race_distance"]
             renames = {"race_distance": f"{driver}_dist"}
-            if "race_status" in tel.columns:
-                cols.append("race_status")
-                renames["race_status"] = f"{driver}_status"
+            status_col = "status" if "status" in tel.columns else "race_status" if "race_status" in tel.columns else None
+            if status_col:
+                cols.append(status_col)
+                renames[status_col] = f"{driver}_status"
             if "lap_number" in tel.columns:
                 cols.append("lap_number")
                 renames["lap_number"] = f"{driver}_lap"
@@ -64,94 +67,101 @@ class OrderBuilder:
                 result[driver] = tel.with_columns(pl.lit(1).cast(pl.UInt8).alias("position"))
             return result
 
-        # Determine finish order from telemetry
-        # (max_lap, finish_time) - higher lap wins, then earlier time wins
-        finish_info = {}  # driver -> (max_lap, finish_time, is_finished)
+        # Get finish info for each driver (laps, finish_time)
+        # Used for ranking among finished drivers
+        finish_info = {}  # driver -> (laps, finish_time)
         for driver, tel in telemetry.items():
-            if "race_status" not in tel.columns:
+            status_col = "status" if "status" in tel.columns else "race_status" if "race_status" in tel.columns else None
+            if status_col is None:
                 continue
-            finished_rows = tel.filter(tel["race_status"] == "Finished")
+            finished_rows = tel.filter(tel[status_col] == "Finished")
             if len(finished_rows) > 0:
                 first = finished_rows.head(1).to_dicts()[0]
-                max_lap = first.get("lap_number", 0)
+                laps = first.get("lap_number", 0)
                 finish_time = first.get("session_time", float("inf"))
-                finish_info[driver] = (max_lap, finish_time, True)
-            else:
-                # Check if retired
-                retired_rows = tel.filter(tel["race_status"] == "Retired")
-                if len(retired_rows) > 0:
-                    first = retired_rows.head(1).to_dicts()[0]
-                    max_lap = first.get("lap_number", 0)
-                    max_dist = tel["race_distance"].max()
-                    finish_info[driver] = (max_lap, float("inf"), False, max_dist)
+                finish_info[driver] = (laps, finish_time)
 
-        # Sort finishers: by (max_lap DESC, finish_time ASC)
-        # This puts full-distance finishers before lapped finishers
-        finished_drivers = [(d, lap, t) for d, (lap, t, fin, *_) in finish_info.items() if fin]
-        finished_drivers.sort(key=lambda x: (-x[1], x[2]))  # Higher lap first, then earlier time
-        finish_position = {d: i + 1 for i, (d, _, _) in enumerate(finished_drivers)}
-
-        # Build unified timeline
+        # Build unified timeline with all joins at once using lazy evaluation
         all_times = pl.concat([
             df.select("session_time") for df in driver_dfs.values()
-        ]).unique().sort("session_time")
+        ]).unique().sort("session_time").lazy()
 
-        unified = all_times
+        # Join all driver data
         for driver in driver_list:
-            unified = unified.join(driver_dfs[driver], on="session_time", how="left")
+            all_times = all_times.join(driver_dfs[driver].lazy(), on="session_time", how="left")
 
-        # Forward-fill
+        # Batch all forward-fills
+        forward_fill_exprs = [pl.col(f"{d}_dist").forward_fill() for d in driver_list]
         for driver in driver_list:
-            unified = unified.with_columns(pl.col(f"{driver}_dist").forward_fill())
-            if f"{driver}_status" in unified.columns:
-                unified = unified.with_columns(pl.col(f"{driver}_status").forward_fill())
-            if f"{driver}_lap" in unified.columns:
-                unified = unified.with_columns(pl.col(f"{driver}_lap").forward_fill())
+            if f"{driver}_status" in [c for df in driver_dfs.values() for c in df.columns]:
+                forward_fill_exprs.append(pl.col(f"{driver}_status").forward_fill())
+            if f"{driver}_lap" in [c for df in driver_dfs.values() for c in df.columns]:
+                forward_fill_exprs.append(pl.col(f"{driver}_lap").forward_fill())
+        all_times = all_times.with_columns(forward_fill_exprs)
 
-        # Add is_finished flag
+        # Batch add finish flags and info columns
+        fin_exprs = []
         for driver in driver_list:
-            if f"{driver}_status" in unified.columns:
-                unified = unified.with_columns(
-                    (pl.col(f"{driver}_status") == "Finished").alias(f"{driver}_fin")
-                )
+            status_col = f"{driver}_status"
+            has_status = any(status_col in df.columns for df in driver_dfs.values())
+            if has_status:
+                fin_exprs.append((pl.col(status_col) == "Finished").alias(f"{driver}_fin"))
             else:
-                unified = unified.with_columns(pl.lit(False).alias(f"{driver}_fin"))
+                fin_exprs.append(pl.lit(False).alias(f"{driver}_fin"))
 
-        # Count finished drivers at each timestep
-        unified = unified.with_columns(
-            pl.sum_horizontal([pl.col(f"{d}_fin").cast(pl.UInt8) for d in driver_list]).alias("n_finished")
-        )
+            laps, ftime = finish_info.get(driver, (0, float("inf")))
+            fin_exprs.append(pl.lit(laps).alias(f"{driver}_laps"))
+            fin_exprs.append(pl.lit(ftime).alias(f"{driver}_ftime"))
+        all_times = all_times.with_columns(fin_exprs)
 
-        # Calculate position for each driver
+        # Batch add current lap columns
+        cur_lap_exprs = []
         for driver in driver_list:
-            # Rank among non-finished drivers (1 = highest race_distance)
-            rank_among_non_finished = 1 + pl.sum_horizontal([
-                ((~pl.col(f"{other}_fin")) &
-                 (pl.col(f"{other}_dist") > pl.col(f"{driver}_dist"))).cast(pl.UInt8)
+            lap_col = f"{driver}_lap"
+            has_lap = any(lap_col in df.columns for df in driver_dfs.values())
+            if has_lap:
+                cur_lap_exprs.append(pl.col(lap_col).alias(f"{driver}_cur_lap"))
+            else:
+                cur_lap_exprs.append(
+                    pl.when(pl.col(f"{driver}_fin"))
+                    .then(pl.col(f"{driver}_laps"))
+                    .otherwise(pl.lit(0))
+                    .alias(f"{driver}_cur_lap")
+                )
+        all_times = all_times.with_columns(cur_lap_exprs)
+
+        # Batch calculate all positions at once
+        # Sort order:
+        # 1. More laps = better
+        # 2. Same laps: finished > racing
+        # 3. Same laps + both finished: earlier finish_time = better
+        # 4. Same laps + both racing: higher race_distance = better
+        pos_exprs = []
+        for driver in driver_list:
+            ahead_count = pl.sum_horizontal([
+                (
+                    (pl.col(f"{other}_cur_lap") > pl.col(f"{driver}_cur_lap")) |
+                    ((pl.col(f"{other}_cur_lap") == pl.col(f"{driver}_cur_lap")) &
+                     pl.col(f"{other}_fin") & (~pl.col(f"{driver}_fin"))) |
+                    ((pl.col(f"{other}_cur_lap") == pl.col(f"{driver}_cur_lap")) &
+                     pl.col(f"{other}_fin") & pl.col(f"{driver}_fin") &
+                     (pl.col(f"{other}_ftime") < pl.col(f"{driver}_ftime"))) |
+                    ((pl.col(f"{other}_cur_lap") == pl.col(f"{driver}_cur_lap")) &
+                     (~pl.col(f"{other}_fin")) & (~pl.col(f"{driver}_fin")) &
+                     (pl.col(f"{other}_dist") > pl.col(f"{driver}_dist")))
+                ).cast(pl.UInt8)
                 for other in driver_list if other != driver
             ])
+            pos_exprs.append(
+                pl.when(pl.col(f"{driver}_dist").is_null())
+                .then(None)
+                .otherwise(1 + ahead_count)
+                .cast(pl.UInt8)
+                .alias(f"{driver}_pos")
+            )
 
-            if driver in finish_position:
-                # Driver finished - use finish order position when finished
-                final_pos = finish_position[driver]
-                unified = unified.with_columns(
-                    pl.when(pl.col(f"{driver}_dist").is_null())
-                    .then(None)
-                    .when(pl.col(f"{driver}_fin"))
-                    .then(pl.lit(final_pos))
-                    .otherwise(pl.col("n_finished") + rank_among_non_finished)
-                    .cast(pl.UInt8)
-                    .alias(f"{driver}_pos")
-                )
-            else:
-                # Driver didn't finish - always rank by race_distance
-                unified = unified.with_columns(
-                    pl.when(pl.col(f"{driver}_dist").is_null())
-                    .then(None)
-                    .otherwise(pl.col("n_finished") + rank_among_non_finished)
-                    .cast(pl.UInt8)
-                    .alias(f"{driver}_pos")
-                )
+        # Collect once at the end
+        unified = all_times.with_columns(pos_exprs).collect()
 
         # Join positions back to each driver's telemetry
         result = {}
