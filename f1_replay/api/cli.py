@@ -54,7 +54,7 @@ def cmd_config(args):
 
 def cmd_server(args):
     """Run standalone API server."""
-    from f1_replay.data_loader import DataLoader
+    from f1_replay.managers import DataLoader
     from f1_replay.api import create_app
 
     loader = DataLoader(cache_dir=args.cache_dir)
