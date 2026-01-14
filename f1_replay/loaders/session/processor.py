@@ -786,12 +786,12 @@ class SessionProcessor:
 
             # Handle WARM UP (SessionStart / FormationLap opens, AbortedStart / LightsOut closes)
             if status == "SessionStart" or status == "FormationLap":
-                # Open a new WarmUp interval
+                # Open a new WarmUp interval (no message - "Formation Lap" pill handles display)
                 key = ("Track", None, "WarmUp")
                 open_statuses[key] = TrackStatusEvent(
                     session_time=event.session_time,
                     status="WarmUp",
-                    message="FORMATION LAP STARTED",
+                    message="",
                     scope="Track",
                     sector=None,
                     driver_num="",
@@ -1613,7 +1613,7 @@ class SessionProcessor:
                 has_session_time = 'session_time' in first_tel.columns
                 print(f"  → Building results with telemetry: {len(telemetry)} drivers, session_time={'✓' if has_session_time else '✗'}")
 
-        fastest_laps = self._extract_fastest_laps(f1_session, telemetry)
+        fastest_laps = self._extract_fastest_laps(f1_session)
         position_history = self._extract_position_history(f1_session, telemetry, true_t0)
 
         if fastest_laps or position_history:
@@ -1624,13 +1624,12 @@ class SessionProcessor:
             position_history=position_history
         )
 
-    def _extract_fastest_laps(self, f1_session, telemetry: Dict[str, pl.DataFrame] = None) -> list[FastestLapEvent]:
+    def _extract_fastest_laps(self, f1_session) -> list[FastestLapEvent]:
         """
-        Extract chronological fastest lap changes with session_time from normalized telemetry.
+        Extract chronological fastest lap changes from laps data.
 
         Args:
-            f1_session: FastF1 session object
-            telemetry: Normalized telemetry dict with 'session_time' column
+            f1_session: FastF1 session object with laps data
         """
         fastest_laps = []
 
@@ -1668,23 +1667,29 @@ class SessionProcessor:
                         if lap_time_seconds < current_fastest_time:
                             current_fastest_time = lap_time_seconds
 
-                            # Find session_time from normalized telemetry
+                            # Calculate session_time from LapStartTime + LapTime
+                            # This gives us when the lap was completed relative to session t0
                             session_time = 0.0
-                            if telemetry and driver in telemetry:
+                            lap_start = lap.get('LapStartTime', None)
+                            lap_time_td = lap.get('LapTime', None)
+                            if lap_start is not None and not pd.isna(lap_start) and lap_time_td is not None and not pd.isna(lap_time_td):
                                 try:
-                                    driver_tel = telemetry[driver]
-                                    if 'LapNumber' in driver_tel.columns and 'session_time' in driver_tel.columns:
-                                        # Find the last point in this lap
-                                        lap_rows = driver_tel.filter(pl.col('LapNumber') == lap_num)
-                                        if len(lap_rows) > 0:
-                                            # Get the session_time of the last point in this lap
-                                            values = lap_rows['session_time'].to_list()
-                                            if values:
-                                                session_time = float(values[-1])
+                                    # Convert to seconds
+                                    if hasattr(lap_start, 'total_seconds'):
+                                        lap_start_sec = lap_start.total_seconds()
+                                    else:
+                                        lap_start_sec = float(lap_start)
+                                    if hasattr(lap_time_td, 'total_seconds'):
+                                        lap_time_sec = lap_time_td.total_seconds()
+                                    else:
+                                        lap_time_sec = float(lap_time_td)
+                                    session_time = lap_start_sec + lap_time_sec
                                 except Exception:
                                     pass
 
-                            fastest_laps.append(FastestLapEvent(                                driver=driver,
+                            fastest_laps.append(FastestLapEvent(
+                                lap=lap_num,
+                                driver=driver,
                                 time=lap_time_seconds,
                                 lap_time_ms=int(lap_time_seconds * 1000),
                                 session_time=session_time
