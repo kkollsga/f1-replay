@@ -519,6 +519,22 @@
             font-weight: 600;
         }
 
+        .race-message.yellow {
+            color: #FFFF00;
+        }
+
+        .race-message.blue {
+            color: #3366FF;
+        }
+
+        .race-message.rain {
+            color: #87CEEB;
+        }
+
+        .race-message.allclear {
+            color: #00FF00;
+        }
+
         @keyframes messageSlideIn {
             from {
                 opacity: 0;
@@ -603,6 +619,12 @@
         .event-pill.rain:hover {
             background: #3A9FFF;
             box-shadow: 0 6px 16px rgba(30, 144, 255, 0.4);
+        }
+
+        /* Starting Lights */
+        .starting-lights {
+            visibility: hidden;
+            z-index: 100;
         }
 
         /* Selector Controls (Below Track) */
@@ -1191,6 +1213,17 @@
                 <div id="vscPill" class="event-pill vsc hidden">Virtual Safety Car</div>
                 <div id="rainPill" class="event-pill rain hidden">Rain</div>
             </div>
+            <div id="startingLights" class="starting-lights">
+                <svg width="380" height="70" viewBox="0 0 380 70">
+                    <rect x="2" y="2" width="376" height="66" rx="22" ry="22"
+                          fill="rgba(30,30,30,0.95)" stroke="#444" stroke-width="2"/>
+                    <circle id="startLight1" cx="50" cy="35" r="25" fill="#1a1a1a"/>
+                    <circle id="startLight2" cx="120" cy="35" r="25" fill="#1a1a1a"/>
+                    <circle id="startLight3" cx="190" cy="35" r="25" fill="#1a1a1a"/>
+                    <circle id="startLight4" cx="260" cy="35" r="25" fill="#1a1a1a"/>
+                    <circle id="startLight5" cx="330" cy="35" r="25" fill="#1a1a1a"/>
+                </svg>
+            </div>
         </div>
 
         <!-- Main: Track Canvas -->
@@ -1285,6 +1318,27 @@
             driverPositionMargin: '8px',
         };
 
+        // Sector status colors for track rendering
+        const SECTOR_STATUS_COLORS = {
+            'Yellow': '#FFFF00',        // Pure yellow
+            'DoubleYellow': '#FFA500',  // Orange (more urgent)
+        };
+
+        // Starting Lights Settings
+        const STARTING_LIGHTS_SETTINGS = {
+            enabled: true,
+            // Timing (in seconds)
+            appearDelay: 3.0,        // Delay after lights appear before first light
+            lightInterval: 1.0,      // Delay between each light turning on
+            randomDelayMin: 1.0,     // Min random delay before lights out (after 5th light)
+            randomDelayMax: 3.0,     // Max random delay before lights out
+            // Styling
+            lightOffColor: '#1a1a1a',
+            lightOnColor: '#ff0000',
+            lightGlowColor: 'rgba(255, 0, 0, 1)',
+            lightGlowSize: 15
+        };
+
         // Track Status State Manager - Single Source of Truth
         class TrackStatus {
             constructor() {
@@ -1292,7 +1346,7 @@
                 this.safetyCar = false;
                 this.vsc = false;
                 this.blueFlag = false;
-                this.yellowSectors = new Set();
+                this.sectorStatuses = new Map();  // Map<sectorNumber, statusType>
                 this.lastLoggedEventIndex = -1;
             }
 
@@ -1320,25 +1374,26 @@
                 return true;
             }
 
-            addYellowSector(sectorNum) {
-                if (this.yellowSectors.has(sectorNum)) return false;
-                this.yellowSectors.add(sectorNum);
+            setSectorStatus(sectorNum, statusType) {
+                const existing = this.sectorStatuses.get(sectorNum);
+                if (existing === statusType) return false;
+                this.sectorStatuses.set(sectorNum, statusType);
                 return true;
             }
 
-            removeYellowSector(sectorNum) {
-                if (!this.yellowSectors.has(sectorNum)) return false;
-                this.yellowSectors.delete(sectorNum);
+            clearSectorStatus(sectorNum) {
+                if (!this.sectorStatuses.has(sectorNum)) return false;
+                this.sectorStatuses.delete(sectorNum);
                 return true;
             }
 
             clearAll() {
-                const changed = this.redFlag || this.safetyCar || this.vsc || this.blueFlag || this.yellowSectors.size > 0;
+                const changed = this.redFlag || this.safetyCar || this.vsc || this.blueFlag || this.sectorStatuses.size > 0;
                 this.redFlag = false;
                 this.safetyCar = false;
                 this.vsc = false;
                 this.blueFlag = false;
-                this.yellowSectors.clear();
+                this.sectorStatuses.clear();
                 return changed;
             }
 
@@ -1347,12 +1402,12 @@
                 if (this.safetyCar) return 'SC';
                 if (this.vsc) return 'VSC';
                 if (this.blueFlag) return 'BLUE';
-                if (this.yellowSectors.size > 0) return 'YELLOW';
+                if (this.sectorStatuses.size > 0) return 'YELLOW';
                 return 'CLEAR';
             }
 
             getSectorList() {
-                return Array.from(this.yellowSectors).sort((a, b) => a - b).join(', ');
+                return Array.from(this.sectorStatuses.keys()).sort((a, b) => a - b).join(', ');
             }
 
             logStatusChange(eventTime, message) {
@@ -1388,21 +1443,45 @@
                 this.messagesContainer = containerEl;
             }
 
-            addMessage(time, message) {
+            addMessage(time, message, status = null) {
                 // Create message element
                 const msgEl = document.createElement('div');
                 msgEl.className = 'race-message';
 
-                // Determine styling based on content
-                const text = (message || '').toUpperCase();
-                if (text.includes('RED')) {
-                    msgEl.classList.add('redflag');
-                } else if (text.includes('YELLOW')) {
-                    msgEl.classList.add('flag');
-                } else if (text.includes('SAFETY') && !text.includes('VIRTUAL')) {
-                    msgEl.classList.add('safetycar');
-                } else if (text.includes('VIRTUAL')) {
-                    msgEl.classList.add('vsc');
+                // Apply color class based on status parameter if provided
+                if (status) {
+                    const s = status.toUpperCase();
+                    if (s === 'RED') {
+                        msgEl.classList.add('redflag');
+                    } else if (s === 'SAFETYCAR' || s === 'SC' || s === 'SCENDING') {
+                        msgEl.classList.add('safetycar');
+                    } else if (s === 'VSC' || s === 'VSCENDING') {
+                        msgEl.classList.add('vsc');
+                    } else if (s === 'YELLOW' || s === 'DOUBLEYELLOW') {
+                        msgEl.classList.add('yellow');
+                    } else if (s === 'BLUE') {
+                        msgEl.classList.add('blue');
+                    } else if (s === 'RAIN') {
+                        msgEl.classList.add('rain');
+                    } else if (s === 'ALLCLEAR' || s === 'GREEN' || s === 'CLEAR') {
+                        msgEl.classList.add('allclear');
+                    }
+                } else {
+                    // Fallback: determine styling based on message content
+                    const text = (message || '').toUpperCase();
+                    if (text.includes('RED')) {
+                        msgEl.classList.add('redflag');
+                    } else if (text.includes('YELLOW')) {
+                        msgEl.classList.add('yellow');
+                    } else if (text.includes('SAFETY') && !text.includes('VIRTUAL')) {
+                        msgEl.classList.add('safetycar');
+                    } else if (text.includes('VIRTUAL')) {
+                        msgEl.classList.add('vsc');
+                    } else if (text.includes('RAIN')) {
+                        msgEl.classList.add('rain');
+                    } else if (text.includes('BLUE')) {
+                        msgEl.classList.add('blue');
+                    }
                 }
 
                 msgEl.innerHTML = `
@@ -1443,9 +1522,9 @@
                 return messageObj;
             }
 
-            displayStatusMessage(time, message) {
+            displayStatusMessage(time, message, status = null) {
                 // Display status message without logging (logging is handled by TrackStatus)
-                return this.addMessage(time, message);
+                return this.addMessage(time, message, status);
             }
 
             logMessage(time, message) {
@@ -1461,6 +1540,70 @@
                 const mins = Math.floor(sec / 60);
                 const secs = Math.floor(sec % 60);
                 return `${mins}:${secs.toString().padStart(2, '0')}`;
+            }
+        }
+
+        // Starting Lights Manager - Handles race start lights sequence
+        class StartingLightsManager {
+            constructor(lightsOutTime, settings = STARTING_LIGHTS_SETTINGS) {
+                this.settings = settings;
+                this.lightsOutTime = lightsOutTime;
+                this.randomDelay = null;
+                this.timings = null;
+            }
+
+            // Called once per session load - generates random delay
+            initialize() {
+                const s = this.settings;
+                this.randomDelay = s.randomDelayMin +
+                    Math.random() * (s.randomDelayMax - s.randomDelayMin);
+                this.calculateTimings();
+            }
+
+            // Pre-calculate all timing thresholds (working backwards from lightsOut)
+            calculateTimings() {
+                const s = this.settings;
+                const lightsOut = this.lightsOutTime;
+
+                // Work backwards from lights out
+                const light5On = lightsOut - this.randomDelay;
+                const light4On = light5On - s.lightInterval;
+                const light3On = light4On - s.lightInterval;
+                const light2On = light3On - s.lightInterval;
+                const light1On = light2On - s.lightInterval;
+                const appear = light1On - s.appearDelay;
+
+                this.timings = {
+                    appear,      // Lights box appears
+                    light1On,    // First light turns red
+                    light2On,
+                    light3On,
+                    light4On,
+                    light5On,    // Fifth light turns red
+                    lightsOut    // All lights go off
+                };
+            }
+
+            // Returns state for given time: { visible, activeLights, isLightsOut }
+            getStateAtTime(currentTime) {
+                if (!this.timings || !this.settings.enabled) {
+                    return { visible: false, activeLights: 0, isLightsOut: false };
+                }
+
+                const t = this.timings;
+
+                if (currentTime < t.appear || currentTime >= t.lightsOut) {
+                    return { visible: false, activeLights: 0, isLightsOut: currentTime >= t.lightsOut };
+                }
+
+                let activeLights = 0;
+                if (currentTime >= t.light1On) activeLights = 1;
+                if (currentTime >= t.light2On) activeLights = 2;
+                if (currentTime >= t.light3On) activeLights = 3;
+                if (currentTime >= t.light4On) activeLights = 4;
+                if (currentTime >= t.light5On) activeLights = 5;
+
+                return { visible: true, activeLights, isLightsOut: false };
             }
         }
 
@@ -1509,6 +1652,7 @@
                 this.rotation = 0;
                 this.trackStatus = new TrackStatus();  // State manager for track flags
                 this.raceControl = new RaceControl();  // State manager for race control messages
+                this.startingLights = null;  // Initialized in initializeSession()
 
                 // Zoom and pan state (overview mode)
                 this.baseScale = 1;               // Scale to fit track in canvas (100% reference)
@@ -2268,12 +2412,21 @@
                 }
 
                 // Store track segments (marshal sectors with start/end distances)
-                this.trackSegments = this.weekendData.circuit.track_segments || [];
+                this.trackSegments = this.weekendData.circuit.track?.marshal_sectors || [];
 
                 // Rotation (convert degrees to radians)
                 const rotationDeg = this.weekendData.circuit.rotation || 0;
                 this.rotation = rotationDeg * Math.PI / 180;
                 console.log(`Track rotation: ${rotationDeg}° (${this.rotation.toFixed(3)} rad)`);
+
+                // Pre-compute sector number for each track point (O(1) lookup during render)
+                this.trackSectorMap = null;
+                if (this.trackData.distance && this.trackSegments.length > 0) {
+                    this.trackSectorMap = new Array(this.trackData.x.length);
+                    for (let i = 0; i < this.trackData.x.length; i++) {
+                        this.trackSectorMap[i] = this.getSectorForDistance(this.trackData.distance[i]);
+                    }
+                }
 
                 // Reset zoom/pan and calculate base scale for new track
                 this.resetZoomPan();
@@ -2289,15 +2442,12 @@
                     // Handle wrap-around case (last sector wraps past lap distance)
                     if (seg.end_distance > seg.start_distance) {
                         if (distance >= seg.start_distance && distance < seg.end_distance) {
-                            // Extract sector number from name (e.g., "Sector 5" -> 5)
-                            const match = seg.name.match(/\d+/);
-                            return match ? parseInt(match[0]) : null;
+                            return seg.number;
                         }
                     } else {
                         // Wrap-around: sector spans end of track to start
                         if (distance >= seg.start_distance || distance < seg.end_distance) {
-                            const match = seg.name.match(/\d+/);
-                            return match ? parseInt(match[0]) : null;
+                            return seg.number;
                         }
                     }
                 }
@@ -2324,6 +2474,11 @@
                 this.cachedTotalLaps = null;  // Reset lap cache for new session
                 this.blueFlagDrivers = new Set();  // Reset blue flags for new session
 
+                // Reset track status and race control message indices
+                this.trackStatus.lastLoggedEventIndex = -1;
+                this.raceControl.lastLoggedEventIndex = -1;
+                this.lastProcessedStatusTime = -1;  // Will be set properly after first updateTrackStatus()
+
                 // Setup RaceControl message container
                 const messagesContainer = document.getElementById('raceMessages');
                 this.raceControl.setContainer(messagesContainer);
@@ -2348,6 +2503,10 @@
                 this.minTime = t0?.warmup_start_offset ?? 0;
                 this.lightsOutTime = t0?.lights_out_offset ?? 0;
                 this.currentTime = this.minTime;
+
+                // Initialize starting lights (random delay generated once per session)
+                this.startingLights = new StartingLightsManager(this.lightsOutTime);
+                this.startingLights.initialize();
 
                 // Initialize progress bar
                 this.updateProgressBar();
@@ -2426,15 +2585,79 @@
 
                 // Always rebuild status from current time (handles blue flags, safety car, etc.)
                 this.rebuildTrackStatusSilently();
+
+                // Display new track status messages during forward playback
+                this.displayTrackStatusMessages();
+
                 this.lastProcessedStatusTime = this.currentTime;
             }
 
+            // Update starting lights display based on current time
+            updateStartingLights() {
+                const state = this.startingLights?.getStateAtTime(this.currentTime);
+                if (!state) return;
+
+                const container = document.getElementById('startingLights');
+                const notifications = document.getElementById('eventNotifications');
+
+                if (state.visible) {
+                    container.style.visibility = 'visible';
+                    notifications.style.visibility = 'hidden';
+
+                    // Update each light SVG element
+                    const settings = this.startingLights.settings;
+                    for (let i = 1; i <= 5; i++) {
+                        const light = document.getElementById(`startLight${i}`);
+                        const isOn = i <= state.activeLights;
+                        light.setAttribute('fill', isOn ? settings.lightOnColor : settings.lightOffColor);
+                        light.style.filter = isOn
+                            ? `drop-shadow(0 0 ${settings.lightGlowSize}px ${settings.lightGlowColor})`
+                            : 'none';
+                    }
+                } else {
+                    container.style.visibility = 'hidden';
+                    notifications.style.visibility = 'visible';
+                }
+            }
+
+            // Display track status messages that have occurred since last update
+            displayTrackStatusMessages() {
+                // Skip message display when scrubbing or on first update (just set index)
+                const isFirstUpdate = this.lastProcessedStatusTime < 0;
+                const timeDelta = this.currentTime - this.lastProcessedStatusTime;
+                const isScrubbing = timeDelta < 0 || timeDelta > 2;
+
+                if (isFirstUpdate || isScrubbing) {
+                    // Just update index without displaying messages
+                    this.trackStatus.lastLoggedEventIndex = -1;
+                    for (let i = 0; i < this.trackStatusEvents.length; i++) {
+                        const event = this.trackStatusEvents[i];
+                        if (!event || event.session_time > this.currentTime) break;
+                        this.trackStatus.lastLoggedEventIndex = i;
+                    }
+                    return;
+                }
+
+                // Normal playback - display messages from last logged index forward
+                for (let i = this.trackStatus.lastLoggedEventIndex + 1; i < this.trackStatusEvents.length; i++) {
+                    const event = this.trackStatusEvents[i];
+                    if (!event || event.session_time > this.currentTime) break;
+
+                    const message = event.message || '';
+                    // Display ALL non-empty messages with color coding based on status
+                    if (message) {
+                        this.raceControl.displayStatusMessage(event.session_time, message, event.status);
+                    }
+                    this.trackStatus.lastLoggedEventIndex = i;
+                }
+            }
+
             // Get all active statuses at current time
-            // Returns: { statuses: ['SafetyCar', 'SafetyCarEnding', 'VSC', 'VSCEnding', etc], yellowSectors: Set, blueFlagDrivers: Set }
+            // Returns: { statuses: [...], sectorStatuses: Map<sector, statusType>, blueFlagDrivers: Set }
             getActiveStatuses() {
                 const BLUE_FLAG_DURATION = 3; // Blue flag shows for 3 seconds
                 const statuses = [];
-                const yellowSectors = new Set();
+                const sectorStatuses = new Map();  // sector -> status type ('Yellow' or 'DoubleYellow')
                 const blueFlagDrivers = new Set();
 
                 for (const event of this.trackStatusEvents) {
@@ -2471,18 +2694,25 @@
                     } else if (status === 'VSC' && !statuses.includes('VSC') && !statuses.includes('VSCEnding')) {
                         statuses.push('VSC');
                     } else if (status === 'YELLOW' || status === 'DOUBLEYELLOW') {
-                        if (event.sector) yellowSectors.add(event.sector);
+                        if (event.sector) {
+                            const statusType = status === 'DOUBLEYELLOW' ? 'DoubleYellow' : 'Yellow';
+                            // DoubleYellow takes priority over Yellow for same sector
+                            const existing = sectorStatuses.get(event.sector);
+                            if (!existing || statusType === 'DoubleYellow') {
+                                sectorStatuses.set(event.sector, statusType);
+                            }
+                        }
                     } else if (status === 'RAIN' && !statuses.includes('Rain')) {
                         statuses.push('Rain');
                     }
                 }
 
-                return { statuses, yellowSectors, blueFlagDrivers };
+                return { statuses, sectorStatuses, blueFlagDrivers };
             }
 
             // Update track from list of active statuses
             // Called every frame/scrub with current active statuses
-            updateTrackFromStatuses(activeStatuses, yellowSectors, blueFlagDrivers) {
+            updateTrackFromStatuses(activeStatuses, sectorStatuses, blueFlagDrivers) {
                 // Check for ending states
                 const scEnding = activeStatuses.includes('SafetyCarEnding');
                 const vscEnding = activeStatuses.includes('VSCEnding');
@@ -2493,7 +2723,7 @@
                 this.trackStatus.redFlag = activeStatuses.includes('Red');
                 this.trackStatus.safetyCar = scActive;
                 this.trackStatus.vsc = vscActive;
-                this.trackStatus.yellowSectors = yellowSectors;
+                this.trackStatus.sectorStatuses = sectorStatuses;
                 this.blueFlagDrivers = blueFlagDrivers; // Store for rendering
 
                 // Track whether we're in an ending state (for pulsing)
@@ -2557,8 +2787,8 @@
 
             // Update track status from current time (called on every frame/scrub)
             rebuildTrackStatusSilently() {
-                const { statuses, yellowSectors, blueFlagDrivers } = this.getActiveStatuses();
-                this.updateTrackFromStatuses(statuses, yellowSectors, blueFlagDrivers);
+                const { statuses, sectorStatuses, blueFlagDrivers } = this.getActiveStatuses();
+                this.updateTrackFromStatuses(statuses, sectorStatuses, blueFlagDrivers);
             }
 
             // Process track status events forward from last processed index
@@ -2585,16 +2815,16 @@
                         changed |= this.trackStatus.setSafetyCar(false);
                         changed |= this.trackStatus.setVSC(false);
                         changed |= this.trackStatus.setBlueFlag(false);
-                        if (this.trackStatus.yellowSectors.size > 0) {
-                            this.trackStatus.yellowSectors.clear();
+                        if (this.trackStatus.sectorStatuses.size > 0) {
+                            this.trackStatus.sectorStatuses.clear();
                             changed = true;
                         }
                     } else if (status === 'SAFETYCAR') {
                         changed |= this.trackStatus.setSafetyCar(true);
                         changed |= this.trackStatus.setVSC(false);
                         changed |= this.trackStatus.setRedFlag(false);
-                        if (this.trackStatus.yellowSectors.size > 0) {
-                            this.trackStatus.yellowSectors.clear();
+                        if (this.trackStatus.sectorStatuses.size > 0) {
+                            this.trackStatus.sectorStatuses.clear();
                             changed = true;
                         }
                     } else if (status === 'VSC') {
@@ -2604,11 +2834,12 @@
                     } else if (status === 'VSCENDING') {
                         // VSC ending - will be followed by AllClear
                         changed |= this.trackStatus.setVSC(false);
-                    } else if (status === 'YELLOW' || flagType === 'YELLOW' || flagType === 'DOUBLE YELLOW') {
+                    } else if (status === 'YELLOW' || status === 'DOUBLEYELLOW' || flagType === 'YELLOW' || flagType === 'DOUBLE YELLOW') {
                         // Yellow flag - use structured sector field if available
                         if (!this.trackStatus.redFlag && !this.trackStatus.safetyCar) {
                             if (sector > 0) {
-                                changed |= this.trackStatus.addYellowSector(sector);
+                                const statusType = (status === 'DOUBLEYELLOW' || flagType === 'DOUBLE YELLOW') ? 'DoubleYellow' : 'Yellow';
+                                changed |= this.trackStatus.setSectorStatus(sector, statusType);
                             } else if (scope === 'Track') {
                                 // Global yellow (session.track_status) - track-wide yellow state
                                 // Don't add to sectors, just note it's yellow
@@ -2619,24 +2850,28 @@
                         changed |= this.trackStatus.setRedFlag(false);
                         changed |= this.trackStatus.setSafetyCar(false);
                         changed |= this.trackStatus.setVSC(false);
-                        if (this.trackStatus.yellowSectors.size > 0) {
-                            this.trackStatus.yellowSectors.clear();
+                        if (this.trackStatus.sectorStatuses.size > 0) {
+                            this.trackStatus.sectorStatuses.clear();
                             changed = true;
                         }
                     } else if (scope === 'Sector' && (flagType === 'GREEN' || flagType === 'CLEAR')) {
                         // Sector clear - use structured sector field
                         if (sector > 0 && !this.trackStatus.redFlag) {
-                            changed |= this.trackStatus.removeYellowSector(sector);
+                            changed |= this.trackStatus.clearSectorStatus(sector);
                         }
                     } else if (status === 'CHEQUERED' || flagType === 'CHEQUERED') {
                         // Race finished
                         changed |= this.trackStatus.clearAll();
                     }
 
-                    // Only log/display during normal playback, not scrubbing
+                    // Log status changes during normal playback
                     if (changed && !silent) {
                         this.trackStatus.logStatusChange(event.session_time, message);
-                        this.raceControl.displayStatusMessage(event.session_time, message);
+                    }
+
+                    // Display ALL non-empty messages in race control (with color coding)
+                    if (message && !silent) {
+                        this.raceControl.displayStatusMessage(event.session_time, message, event.status);
                     }
                     this.trackStatus.lastLoggedEventIndex = eventIndex;
                 }
@@ -3556,45 +3791,54 @@
                 this.ctx.shadowColor = 'transparent';
                 this.ctx.shadowBlur = 0;
 
-                // Draw track with glow (handle yellow sectors)
+                // Draw track with glow (handle sector-specific statuses)
                 this.ctx.lineWidth = 3;
                 this.ctx.lineCap = 'round';
                 this.ctx.lineJoin = 'round';
 
-                if (this.trackStatus.yellowSectors && this.trackStatus.yellowSectors.size > 0 && this.trackData.distance) {
-                    // Track has distance data - draw with sector-based coloring
+                if (this.trackStatus.sectorStatuses && this.trackStatus.sectorStatuses.size > 0 && this.trackSectorMap) {
+                    // Track has sector data - draw with sector-based coloring
                     let currentPath = [];
                     let currentColor = this.trackColor;
+                    const firstPoint = screenTransform(this.trackData.x[0], this.trackData.y[0]);
 
                     for (let i = 0; i < this.trackData.x.length; i++) {
-                        const dist = this.trackData.distance[i] || 0;
-                        // Use backend-provided sector boundaries
-                        const sectorNum = this.getSectorForDistance(dist);
-                        const newColor = (sectorNum && this.trackStatus.yellowSectors.has(sectorNum)) ? '#FFD700' : this.trackColor;
+                        // O(1) lookup using pre-computed sector map
+                        const sectorNum = this.trackSectorMap[i];
+                        let newColor = this.trackColor;
+                        if (sectorNum && this.trackStatus.sectorStatuses.has(sectorNum)) {
+                            const sectorStatus = this.trackStatus.sectorStatuses.get(sectorNum);
+                            newColor = SECTOR_STATUS_COLORS[sectorStatus] || '#FFD700';
+                        }
 
-                        // If color changed, draw the previous path
+                        // Add point to current path
+                        const p = screenTransform(this.trackData.x[i], this.trackData.y[i]);
+
+                        // If color changed, draw the previous path and start new one
                         if (newColor !== currentColor && currentPath.length > 0) {
                             this.ctx.strokeStyle = currentColor;
                             this.ctx.shadowColor = currentColor;
                             this.ctx.shadowBlur = 15;
                             this.ctx.beginPath();
                             for (let j = 0; j < currentPath.length; j++) {
-                                const p = currentPath[j];
+                                const pt = currentPath[j];
                                 if (j === 0) {
-                                    this.ctx.moveTo(p.x, p.y);
+                                    this.ctx.moveTo(pt.x, pt.y);
                                 } else {
-                                    this.ctx.lineTo(p.x, p.y);
+                                    this.ctx.lineTo(pt.x, pt.y);
                                 }
                             }
                             this.ctx.stroke();
-                            currentPath = [];
+                            // Start new path with the last point to avoid gaps
+                            currentPath = [currentPath[currentPath.length - 1]];
                             currentColor = newColor;
                         }
 
-                        // Add point to current path
-                        const p = screenTransform(this.trackData.x[i], this.trackData.y[i]);
                         currentPath.push(p);
                     }
+
+                    // Close the loop: add first point to connect back
+                    currentPath.push(firstPoint);
 
                     // Draw final path
                     if (currentPath.length > 0) {
@@ -3603,11 +3847,11 @@
                         this.ctx.shadowBlur = 15;
                         this.ctx.beginPath();
                         for (let j = 0; j < currentPath.length; j++) {
-                            const p = currentPath[j];
+                            const pt = currentPath[j];
                             if (j === 0) {
-                                this.ctx.moveTo(p.x, p.y);
+                                this.ctx.moveTo(pt.x, pt.y);
                             } else {
-                                this.ctx.lineTo(p.x, p.y);
+                                this.ctx.lineTo(pt.x, pt.y);
                             }
                         }
                         this.ctx.stroke();
@@ -3819,6 +4063,7 @@
 
                     // Update track status (logs only when status changes)
                     this.updateTrackStatus();
+                    this.updateStartingLights();
 
                     this.updateStandings();
                     this.updateTrackColor();
