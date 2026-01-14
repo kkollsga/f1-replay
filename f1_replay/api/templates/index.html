@@ -3138,7 +3138,7 @@
                 // Get tire info and status (no interpolation needed - use current value)
                 const compound = telemetry.compound ? telemetry.compound[idx1] : null;
                 const tyreLife = telemetry.tyre_life ? telemetry.tyre_life[idx1] : null;
-                const status = telemetry.race_status ? telemetry.race_status[idx1] : null;
+                const status = telemetry.status ? telemetry.status[idx1] : null;
 
                 // If we're at the last sample or beyond current time, return without interpolation
                 if (idx2 >= telemetry.session_time.length) {
@@ -3388,12 +3388,18 @@
             // Render time/gap info for a driver
             renderTimeInfo(pos, idx, positions, isDNF) {
                 const inPit = pos.status === 'pit';
+                const isPreRace = pos.status === 'PreSession' || pos.status === 'WarmUp';
 
                 let gap;
                 if (isDNF) {
                     gap = 'DNF';
                 } else if (idx === 0) {
                     gap = 'LEADER';
+                } else if (isPreRace) {
+                    // Show distance to car ahead in meters during pre-race phases
+                    const aheadPos = positions[idx - 1];
+                    const distGap = aheadPos.progress - pos.progress;
+                    gap = '+' + Math.round(distGap) + 'm';
                 } else if (pos.interval !== null && pos.interval !== undefined) {
                     gap = '+' + pos.interval.toFixed(2) + 's';
                 } else {
