@@ -183,19 +183,19 @@ def serialize_events(events) -> Dict[str, List[Dict]]:
     Serialize all event DataFrames to JSON-safe format.
 
     Args:
-        events: EventsData object with track_status, race_control, weather DataFrames
+        events: EventsData object with track_status, race_control, status_messages DataFrames
 
     Returns:
         {
             'track_status': [...],
             'race_control': [...],
-            'weather': [...]
+            'status_messages': [...]
         }
     """
     return {
         'track_status': to_json_safe(events.track_status),
         'race_control': to_json_safe(events.race_control),
-        'weather': to_json_safe(events.weather),
+        'status_messages': to_json_safe(events.status_messages),
     }
 
 

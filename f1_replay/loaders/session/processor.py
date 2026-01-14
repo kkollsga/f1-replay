@@ -24,6 +24,13 @@ from f1_replay.loaders.session.order import OrderBuilder
 class SessionProcessor:
     """Process and build SessionData."""
 
+    # Message patterns from "Other" category that are routed to track_status/subtitle
+    # These are excluded from race_control to avoid duplicates
+    TRACK_STATUS_MESSAGE_PATTERNS = ['ABORTED START']
+    # Regex pattern for messages with timestamps (e.g., "RACE WILL START AT 12:47")
+    # These become status subtitles, not race control messages
+    TIMESTAMP_MESSAGE_PATTERN = r'AT\s+\d{1,2}:\d{2}'
+
     def __init__(self, fastf1_client: FastF1Client, circuit_length: float, weekend_track=None):
         """
         Initialize processor.
@@ -1005,8 +1012,9 @@ class SessionProcessor:
             t0_datetime = t0_date
 
         # Extract events - all session_time values relative to t0_date
-        track_status_list = self._extract_track_status(f1_session, t0_datetime)
+        track_status_list = self._extract_track_status(f1_session, t0_datetime, t0_info)
         race_control_list = self._extract_race_control_messages(f1_session, t0_datetime)
+        status_messages_list = self._extract_status_messages(f1_session, t0_datetime, t0_info)
         weather_list = self._extract_weather_data(f1_session, t0_datetime)
 
         # Build weather DataFrame temporarily for rain extraction (not stored)
@@ -1067,15 +1075,18 @@ class SessionProcessor:
             for msg in race_control_list
         ]) if race_control_list else pl.DataFrame()
 
+        status_messages_df = pl.DataFrame(status_messages_list) if status_messages_list else pl.DataFrame()
+
         if track_status_list or race_control_list:
-            print(f"  → Events: {len(track_status_list)} track status intervals ({consolidation_report['summary']['merged_count']} merged), {len(race_control_list)} messages")
+            print(f"  → Events: {len(track_status_list)} track status intervals ({consolidation_report['summary']['merged_count']} merged), {len(race_control_list)} messages, {len(status_messages_list)} status subtitles")
 
         return EventsData(
             track_status=track_status_with_report,
-            race_control=race_control_df
+            race_control=race_control_df,
+            status_messages=status_messages_df
         )
 
-    def _extract_track_status(self, f1_session, t0_datetime=None) -> list[TrackStatusEvent]:
+    def _extract_track_status(self, f1_session, t0_datetime=None, t0_info: T0Info = None) -> list[TrackStatusEvent]:
         """
         Extract unified track status from both session.track_status AND race_control_messages.
 
@@ -1172,9 +1183,25 @@ class SessionProcessor:
                     try:
                         flag_type = str(row.get('Flag', '')).upper()
                         message = str(row.get('Message', ''))
+                        message_upper = message.upper()
+
+                        # GREEN LIGHT - PIT EXIT OPEN indicates formation lap start
+                        # This is the actual start signal, not the "FORMATION LAP" announcement
+                        if 'GREEN LIGHT' in message_upper and 'PIT EXIT OPEN' in message_upper:
+                            time_value = row.get('Time', None)
+                            session_time = self._parse_time_to_session_seconds(time_value, None, t0_datetime)
+                            events.append(TrackStatusEvent(
+                                session_time=session_time,
+                                status='FormationLap',
+                                message=message,
+                                scope="Track",
+                                sector=None,
+                                driver_num=""
+                            ))
+                            continue
 
                         # Clean up blue flag messages - remove "TIMED AT..." suffix
-                        if 'BLUE FLAG' in message.upper() and 'TIMED AT' in message.upper():
+                        if 'BLUE FLAG' in message_upper and 'TIMED AT' in message_upper:
                             # Find "TIMED AT" and remove everything from that point
                             timed_at_pos = message.upper().find('TIMED AT')
                             if timed_at_pos > 0:
@@ -1266,19 +1293,45 @@ class SessionProcessor:
                                 driver_num=""
                             ))
 
-                        # Check for FORMATION LAP
-                        elif 'FORMATION LAP' in message_upper:
-                            time_value = row.get('Time', None)
-                            session_time = self._parse_time_to_session_seconds(time_value, None, t0_datetime)
+                        # Check for FORMATION LAP - parse actual start time from message
+                        # Message format: "FORMATION LAP WILL START AT HH:MM"
+                        elif 'FORMATION LAP' in message_upper and 'WILL START AT' in message_upper:
+                            import re
+                            # Extract HH:MM from message (this is LOCAL time)
+                            time_match = re.search(r'WILL START AT\s*(\d{1,2}):(\d{2})', message_upper)
+                            if time_match and t0_datetime is not None:
+                                local_hour = int(time_match.group(1))
+                                local_minute = int(time_match.group(2))
 
-                            events.append(TrackStatusEvent(
-                                session_time=session_time,
-                                status='FormationLap',
-                                message=message,
-                                scope="Track",
-                                sector=None,
-                                driver_num=""
-                            ))
+                                # Convert local time to UTC by subtracting offset
+                                utc_offset_hours = t0_info.utc_offset_hours if t0_info else 0
+                                utc_hour = local_hour - int(utc_offset_hours)
+                                utc_minute = local_minute - int((utc_offset_hours % 1) * 60)
+
+                                # Handle hour/minute overflow
+                                if utc_minute < 0:
+                                    utc_minute += 60
+                                    utc_hour -= 1
+                                if utc_hour < 0:
+                                    utc_hour += 24
+
+                                # Build the actual start timestamp using t0_datetime's date
+                                start_datetime = t0_datetime.replace(
+                                    hour=utc_hour, minute=utc_minute, second=0, microsecond=0
+                                )
+                                # Handle day rollover (if start time is before t0)
+                                if start_datetime < t0_datetime:
+                                    start_datetime += pd.Timedelta(days=1)
+                                session_time = (start_datetime - t0_datetime).total_seconds()
+
+                                events.append(TrackStatusEvent(
+                                    session_time=session_time,
+                                    status='FormationLap',
+                                    message=message,
+                                    scope="Track",
+                                    sector=None,
+                                    driver_num=""
+                                ))
                     except Exception:
                         pass
 
@@ -1343,9 +1396,19 @@ class SessionProcessor:
             if 'Category' in messages_df.columns:
                 rc_messages = messages_df[messages_df['Category'] == 'Other']
 
+                import re
                 for _, row in rc_messages.iterrows():
                     try:
                         message_text = row.get('Message', '')
+                        message_upper = str(message_text).upper() if pd.notna(message_text) else ''
+
+                        # Skip messages already handled by track_status (single source of truth)
+                        if any(pattern in message_upper for pattern in self.TRACK_STATUS_MESSAGE_PATTERNS):
+                            continue
+
+                        # Skip messages with timestamps (AT HH:MM) - these become status subtitles
+                        if re.search(self.TIMESTAMP_MESSAGE_PATTERN, message_upper):
+                            continue
                         time_value = row.get('Time', None)
                         time_float = 0.0
                         session_time = 0.0
@@ -1375,6 +1438,88 @@ class SessionProcessor:
 
         except Exception:
             pass  # Return empty if extraction fails
+
+        return messages
+
+    def _extract_status_messages(self, f1_session, t0_datetime=None, t0_info=None) -> list[dict]:
+        """
+        Extract status messages with timestamps (e.g., "RACE WILL START AT 12:47").
+
+        These become status subtitles displayed below track status pills.
+        The time in the message is local time - we use utc_offset_hours to convert to UTC.
+
+        Returns list of dicts with: session_time, end_time, message
+        """
+        import re
+        messages = []
+
+        try:
+            messages_df = None
+            if hasattr(f1_session, 'race_control_messages') and f1_session.race_control_messages is not None:
+                messages_df = f1_session.race_control_messages
+            elif hasattr(f1_session, 'messages') and f1_session.messages is not None:
+                messages_df = f1_session.messages
+
+            if messages_df is None or len(messages_df) == 0:
+                return messages
+
+            # Get UTC offset (message times are in local time)
+            utc_offset_hours = t0_info.utc_offset_hours if t0_info else 0
+
+            if 'Category' in messages_df.columns:
+                # Only process "Other" category messages
+                other_messages = messages_df[messages_df['Category'] == 'Other']
+
+                for _, row in other_messages.iterrows():
+                    try:
+                        message_text = row.get('Message', '')
+                        message_str = str(message_text) if pd.notna(message_text) else ''
+                        message_upper = message_str.upper()
+
+                        # Match "AT HH:MM" pattern
+                        match = re.search(self.TIMESTAMP_MESSAGE_PATTERN, message_upper)
+                        if match and t0_datetime is not None:
+                            # Parse announcement time
+                            time_value = row.get('Time', None)
+                            session_time = self._parse_time_to_session_seconds(time_value, None, t0_datetime)
+
+                            # Parse target time from message (this is LOCAL time)
+                            time_match = re.search(r'AT\s+(\d{1,2}):(\d{2})', message_upper)
+                            if time_match:
+                                local_hour = int(time_match.group(1))
+                                local_minute = int(time_match.group(2))
+
+                                # Convert local time to UTC by subtracting offset
+                                # Then build target datetime using t0_datetime's date (which is UTC)
+                                utc_hour = local_hour - int(utc_offset_hours)
+                                utc_minute = local_minute - int((utc_offset_hours % 1) * 60)
+
+                                # Handle hour/minute overflow
+                                if utc_minute < 0:
+                                    utc_minute += 60
+                                    utc_hour -= 1
+                                if utc_hour < 0:
+                                    utc_hour += 24
+
+                                target_datetime = t0_datetime.replace(
+                                    hour=utc_hour, minute=utc_minute, second=0, microsecond=0
+                                )
+                                # Handle day rollover
+                                if target_datetime < t0_datetime:
+                                    target_datetime += pd.Timedelta(days=1)
+
+                                end_time = (target_datetime - t0_datetime).total_seconds()
+
+                                messages.append({
+                                    'session_time': session_time,
+                                    'end_time': end_time,
+                                    'message': message_str
+                                })
+                    except Exception:
+                        pass
+
+        except Exception:
+            pass
 
         return messages
 

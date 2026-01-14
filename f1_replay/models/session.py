@@ -167,6 +167,9 @@ class EventsData(F1DataMixin):
     # Can access .report property for consolidation details
     track_status: TrackStatusWithReport = field(default_factory=lambda: TrackStatusWithReport(pl.DataFrame()))
     race_control: pl.DataFrame = field(default_factory=lambda: pl.DataFrame())  # Columns: message, time, session_time
+    # Status subtitles: messages with timestamps like "RACE WILL START AT 12:47"
+    # Columns: session_time (announcement), end_time (target time), message
+    status_messages: pl.DataFrame = field(default_factory=lambda: pl.DataFrame())
 
 
 @dataclass(frozen=True)
