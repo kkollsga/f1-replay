@@ -137,16 +137,18 @@ Improve the web app structure and developer workflow.
 
 ### 3.1 Flask Refactoring
 
-- [ ] Refactor `create_app()` (279-line closure) to use Flask Blueprints for routes
-- [ ] Separate API routes (`/api/*`) from UI routes (`/`) into distinct blueprints
-- [ ] Add Flask hot reload for template/static changes (avoid restart for frontend dev)
+- [x] Refactor `create_app()` to use Flask Blueprints for routes
+- [x] Separate API routes (`/api/*`) from UI routes (`/`) into distinct blueprints
+- [x] Add Flask hot reload for template/static changes (TEMPLATES_AUTO_RELOAD=True)
 
 ### 3.2 CI/CD Improvements
 
-- [ ] Update CI test job to run `pytest` (or `make test`) instead of import check
-- [ ] Add lint job to CI workflow (black --check, isort --check, flake8)
-- [ ] Add coverage reporting (pytest-cov, upload to codecov or similar)
-- [ ] Verify Python 3.13 works in test matrix
+- [x] Update CI test job to run `pytest` with coverage across Python 3.9-3.13 matrix
+- [x] Add lint job to CI workflow (black --check, isort --check, flake8)
+- [x] Add coverage reporting (pytest-cov, upload artifact)
+- [x] Verify Python 3.13 works in test matrix
+- [x] Add `make check` target (lint + test) + CLAUDE.md instruction
+- [x] Centralize flake8 config in `.flake8`, fix all flake8 errors
 
 ---
 
