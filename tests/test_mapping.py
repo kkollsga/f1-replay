@@ -1,20 +1,24 @@
 """Tests for session type bidirectional mapping."""
 
 import pytest
+
 from f1_replay.loaders.core.mapping import to_fastf1_code, to_user_friendly
 
 
 class TestToFastf1Code:
     """Test user-friendly -> FastF1 code conversion."""
 
-    @pytest.mark.parametrize("user_name,expected", [
-        ("Race", "R"),
-        ("Qualifying", "Q"),
-        ("Sprint", "S"),
-        ("Practice1", "FP1"),
-        ("Practice2", "FP2"),
-        ("Practice3", "FP3"),
-    ])
+    @pytest.mark.parametrize(
+        "user_name,expected",
+        [
+            ("Race", "R"),
+            ("Qualifying", "Q"),
+            ("Sprint", "S"),
+            ("Practice1", "FP1"),
+            ("Practice2", "FP2"),
+            ("Practice3", "FP3"),
+        ],
+    )
     def test_user_friendly_names(self, user_name, expected):
         assert to_fastf1_code(user_name) == expected
 
@@ -35,14 +39,17 @@ class TestToFastf1Code:
 class TestToUserFriendly:
     """Test FastF1 code -> user-friendly conversion."""
 
-    @pytest.mark.parametrize("code,expected", [
-        ("R", "Race"),
-        ("Q", "Qualifying"),
-        ("S", "Sprint"),
-        ("FP1", "Practice1"),
-        ("FP2", "Practice2"),
-        ("FP3", "Practice3"),
-    ])
+    @pytest.mark.parametrize(
+        "code,expected",
+        [
+            ("R", "Race"),
+            ("Q", "Qualifying"),
+            ("S", "Sprint"),
+            ("FP1", "Practice1"),
+            ("FP2", "Practice2"),
+            ("FP3", "Practice3"),
+        ],
+    )
     def test_known_codes(self, code, expected):
         assert to_user_friendly(code) == expected
 

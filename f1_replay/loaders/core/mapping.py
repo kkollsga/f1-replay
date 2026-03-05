@@ -18,14 +18,16 @@ USER_TO_FASTF1 = {
 FASTF1_TO_USER = {v: k for k, v in USER_TO_FASTF1.items()}
 
 # Allow both formats
-USER_TO_FASTF1.update({
-    "FP1": "FP1",
-    "FP2": "FP2",
-    "FP3": "FP3",
-    "Q": "Q",
-    "S": "S",
-    "R": "R",
-})
+USER_TO_FASTF1.update(
+    {
+        "FP1": "FP1",
+        "FP2": "FP2",
+        "FP3": "FP3",
+        "Q": "Q",
+        "S": "S",
+        "R": "R",
+    }
+)
 
 
 def to_fastf1_code(session_type: str) -> str:
@@ -40,8 +42,10 @@ def to_fastf1_code(session_type: str) -> str:
         FastF1 API code ("FP1", "FP2", "FP3", "Q", "S", "R")
     """
     if session_type not in USER_TO_FASTF1:
-        raise ValueError(f"Unknown session type: {session_type}. "
-                        f"Valid types: {list(set(USER_TO_FASTF1.keys()))}")
+        raise ValueError(
+            f"Unknown session type: {session_type}. "
+            f"Valid types: {list(set(USER_TO_FASTF1.keys()))}"
+        )
     return USER_TO_FASTF1[session_type]
 
 

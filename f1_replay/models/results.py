@@ -23,6 +23,7 @@ class LoadResult(NamedTuple):
         session_data = result.data  # SessionData (always present)
         raw = result.raw_session    # FastF1 session (only when freshly processed)
     """
+
     data: SessionData
     raw_session: Any = None  # FastF1 session object (temporary, not stored)
 
@@ -30,6 +31,7 @@ class LoadResult(NamedTuple):
 @dataclass
 class F1DataResult(F1DataMixin):
     """Base class for mutable F1 data result objects."""
+
     pass
 
 
@@ -43,6 +45,7 @@ class RaceResults(F1DataResult):
 
     Extensible: add more fields as needed (podium, dnfs, etc.)
     """
+
     winner: str  # Winner abbreviation (e.g., "VER")
     raw_session: Any = None  # FastF1 session (temporary, for further loading)
 

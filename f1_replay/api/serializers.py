@@ -5,8 +5,9 @@ Converts Polars DataFrames, NumPy arrays, and custom types to JSON-safe formats.
 Handles telemetry field filtering and optimized payload generation.
 """
 
-from typing import Any, Dict, Optional, List
 from dataclasses import asdict, is_dataclass
+from typing import Any, Dict, List, Optional
+
 import numpy as np
 import polars as pl
 
@@ -36,7 +37,7 @@ def to_json_safe(obj: Any) -> Any:
         return to_json_safe(asdict(obj))
 
     # TrackStatusWithReport wrapper - extract underlying DataFrame
-    if hasattr(obj, '_df') and isinstance(getattr(obj, '_df', None), pl.DataFrame):
+    if hasattr(obj, "_df") and isinstance(getattr(obj, "_df", None), pl.DataFrame):
         return to_json_safe(obj._df)
 
     # Polars DataFrame - convert to dicts then recursively process
@@ -63,7 +64,7 @@ def to_json_safe(obj: Any) -> Any:
         return obj
 
     # Timedelta
-    if hasattr(obj, 'total_seconds'):
+    if hasattr(obj, "total_seconds"):
         return obj.total_seconds()
 
     # Dict - recursively convert values
@@ -78,8 +79,9 @@ def to_json_safe(obj: Any) -> Any:
     return obj
 
 
-def serialize_telemetry(telemetry_dict: Dict[str, pl.DataFrame],
-                       fields: Optional[List[str]] = None) -> Dict[str, Dict]:
+def serialize_telemetry(
+    telemetry_dict: Dict[str, pl.DataFrame], fields: Optional[List[str]] = None
+) -> Dict[str, Dict]:
     """
     Serialize telemetry with field filtering and optimization.
 
@@ -94,23 +96,33 @@ def serialize_telemetry(telemetry_dict: Dict[str, pl.DataFrame],
     if fields is None:
         # Default fields for race visualization (snake_case)
         fields = [
-            'session_time', 'lap_number', 'x', 'y',
-            'track_distance', 'race_distance', 'position', 'interval',
-            'status', 'compound', 'tyre_life', 'speed',
-            'vx', 'vy'  # Velocity vectors for Hermite interpolation
+            "session_time",
+            "lap_number",
+            "x",
+            "y",
+            "track_distance",
+            "race_distance",
+            "position",
+            "interval",
+            "status",
+            "compound",
+            "tyre_life",
+            "speed",
+            "vx",
+            "vy",  # Velocity vectors for Hermite interpolation
         ]
 
     # Fields that should be rounded to reduce JSON size
     ROUND_PRECISION = {
-        'session_time': 2,  # 0.01s precision
-        'x': 1,             # 0.1 decimeter precision
-        'y': 1,             # 0.1 decimeter precision
-        'track_distance': 1,  # 0.1m precision
-        'race_distance': 1,   # 0.1m precision
-        'interval': 3,        # 0.001s precision
-        'speed': 1,           # 0.1 km/h precision
-        'vx': 1,              # 0.1 dm/s precision
-        'vy': 1,              # 0.1 dm/s precision
+        "session_time": 2,  # 0.01s precision
+        "x": 1,  # 0.1 decimeter precision
+        "y": 1,  # 0.1 decimeter precision
+        "track_distance": 1,  # 0.1m precision
+        "race_distance": 1,  # 0.1m precision
+        "interval": 3,  # 0.001s precision
+        "speed": 1,  # 0.1 km/h precision
+        "vx": 1,  # 0.1 dm/s precision
+        "vy": 1,  # 0.1 dm/s precision
     }
 
     result = {}
@@ -157,22 +169,29 @@ def serialize_track_geometry(track) -> Dict[str, Any]:
         return None
 
     result = {
-        'x': track.x.tolist() if isinstance(track.x, np.ndarray) else (track.x if track.x is not None else []),
-        'y': track.y.tolist() if isinstance(track.y, np.ndarray) else (track.y if track.y is not None else []),
+        "x": (
+            track.x.tolist()
+            if isinstance(track.x, np.ndarray)
+            else (track.x if track.x is not None else [])
+        ),
+        "y": (
+            track.y.tolist()
+            if isinstance(track.y, np.ndarray)
+            else (track.y if track.y is not None else [])
+        ),
     }
 
     # Handle both TrackGeometry (lap_distance) and PitLane (length)
-    if hasattr(track, 'lap_distance'):
-        result['lap_distance'] = float(track.lap_distance) if track.lap_distance else 0.0
-    elif hasattr(track, 'length'):
-        result['lap_distance'] = float(track.length) if track.length else 0.0
+    if hasattr(track, "lap_distance"):
+        result["lap_distance"] = float(track.lap_distance) if track.lap_distance else 0.0
+    elif hasattr(track, "length"):
+        result["lap_distance"] = float(track.length) if track.length else 0.0
     else:
-        result['lap_distance'] = 0.0
+        result["lap_distance"] = 0.0
 
     if track.distance is not None:
-        result['distance'] = (
-            track.distance.tolist() if isinstance(track.distance, np.ndarray)
-            else track.distance
+        result["distance"] = (
+            track.distance.tolist() if isinstance(track.distance, np.ndarray) else track.distance
         )
 
     return result
@@ -193,9 +212,9 @@ def serialize_events(events) -> Dict[str, List[Dict]]:
         }
     """
     return {
-        'track_status': to_json_safe(events.track_status),
-        'race_control': to_json_safe(events.race_control),
-        'status_messages': to_json_safe(events.status_messages),
+        "track_status": to_json_safe(events.track_status),
+        "race_control": to_json_safe(events.race_control),
+        "status_messages": to_json_safe(events.status_messages),
     }
 
 
@@ -226,17 +245,19 @@ def serialize_position_history(position_history) -> List[Dict]:
     for snapshot in position_history:
         standings = [
             {
-                'position': entry.position,
-                'driver': entry.driver,
-                'gap': to_json_safe(entry.gap)  # Convert gap (may be NaN/Inf)
+                "position": entry.position,
+                "driver": entry.driver,
+                "gap": to_json_safe(entry.gap),  # Convert gap (may be NaN/Inf)
             }
             for entry in snapshot.standings
         ]
-        result.append({
-            'time': to_json_safe(snapshot.time),  # Convert time (may be NaN/Inf)
-            'lap': snapshot.lap,
-            'standings': standings
-        })
+        result.append(
+            {
+                "time": to_json_safe(snapshot.time),  # Convert time (may be NaN/Inf)
+                "lap": snapshot.lap,
+                "standings": standings,
+            }
+        )
     return result
 
 
@@ -252,11 +273,13 @@ def serialize_fastest_laps(fastest_laps) -> List[Dict]:
     """
     result = []
     for event in fastest_laps:
-        result.append({
-            'lap': event.lap,
-            'driver': event.driver,
-            'time': to_json_safe(event.time),  # Convert time (may be NaN/Inf)
-            'lap_time_ms': event.lap_time_ms,
-            'session_time': to_json_safe(event.session_time)  # Time when lap was completed
-        })
+        result.append(
+            {
+                "lap": event.lap,
+                "driver": event.driver,
+                "time": to_json_safe(event.time),  # Convert time (may be NaN/Inf)
+                "lap_time_ms": event.lap_time_ms,
+                "session_time": to_json_safe(event.session_time),  # Time when lap was completed
+            }
+        )
     return result

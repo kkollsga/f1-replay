@@ -5,7 +5,8 @@ TIER 2: F1Weekend with circuit geometry for track visualization.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
 import numpy as np
 from scipy.spatial import cKDTree
 
@@ -18,6 +19,7 @@ if TYPE_CHECKING:
 @dataclass(frozen=True)
 class MarshalSector(F1DataMixin):
     """Marshal sector boundary (used for yellow flag zones)."""
+
     number: int  # Sector number (1-based)
     start_distance: float  # Start distance in meters
     end_distance: float  # End distance in meters
@@ -29,6 +31,7 @@ class MarshalSector(F1DataMixin):
 @dataclass(frozen=True)
 class Corner(F1DataMixin):
     """Track corner marker."""
+
     number: int  # Corner number (1-based)
     distance: float  # Track distance in meters
     angle: float  # Corner angle in degrees
@@ -51,6 +54,7 @@ class TrackGeometry(F1DataMixin):
     - progress_on_track(x, y): Get track distance for each point
     - distance_to_track(x, y): Get perpendicular distance to track
     """
+
     x: np.ndarray  # float32 array of X coordinates (decimeters)
     y: np.ndarray  # float32 array of Y coordinates (decimeters)
     distance: Optional[np.ndarray] = None  # float32 cumulative distance in METERS
@@ -124,7 +128,7 @@ class TrackGeometry(F1DataMixin):
             Tuple of (track_distance, distance_to_track) arrays
         """
         if self.x is None or len(self.x) == 0 or self.distance is None:
-            n = len(px) if hasattr(px, '__len__') else 1
+            n = len(px) if hasattr(px, "__len__") else 1
             return np.zeros(n, dtype=np.float32), np.zeros(n, dtype=np.float32)
 
         px = np.asarray(px, dtype=np.float32)
@@ -137,9 +141,9 @@ class TrackGeometry(F1DataMixin):
             return self._project_perpendicular_simple(px, py)
 
         # Build KD-tree from track points (cache for reuse)
-        if not hasattr(self, '_kdtree') or self._kdtree is None:
+        if not hasattr(self, "_kdtree") or self._kdtree is None:
             track_points = np.column_stack([self.x, self.y])
-            object.__setattr__(self, '_kdtree', cKDTree(track_points))
+            object.__setattr__(self, "_kdtree", cKDTree(track_points))
 
         # Close the track loop for segment calculations
         track_x = np.concatenate([self.x, self.x[:1]])
@@ -195,7 +199,7 @@ class TrackGeometry(F1DataMixin):
         closest_y = seg_start_y + t_clamped * seg_dy_cand
 
         # Distance squared to closest point
-        dist_sq = (px_exp - closest_x)**2 + (py_exp - closest_y)**2
+        dist_sq = (px_exp - closest_x) ** 2 + (py_exp - closest_y) ** 2
 
         # Find best segment for each point
         best_cand_idx = np.argmin(dist_sq, axis=1)  # (n_points,)
@@ -206,7 +210,9 @@ class TrackGeometry(F1DataMixin):
         best_dist = np.sqrt(dist_sq[row_idx, best_cand_idx])
 
         # Interpolate track distance
-        best_track_dist = track_dist[best_seg] + best_t * (track_dist[best_seg + 1] - track_dist[best_seg])
+        best_track_dist = track_dist[best_seg] + best_t * (
+            track_dist[best_seg + 1] - track_dist[best_seg]
+        )
 
         # Wrap to [0, lap_distance)
         best_track_dist = np.mod(best_track_dist, self.lap_distance).astype(np.float32)
@@ -242,7 +248,7 @@ class TrackGeometry(F1DataMixin):
         # Closest point on each segment
         closest_x = track_x[:-1] + t_clamped * seg_dx
         closest_y = track_y[:-1] + t_clamped * seg_dy
-        dist_sq = (px[:, np.newaxis] - closest_x)**2 + (py[:, np.newaxis] - closest_y)**2
+        dist_sq = (px[:, np.newaxis] - closest_x) ** 2 + (py[:, np.newaxis] - closest_y) ** 2
 
         # Find best segment for each point
         best_seg = np.argmin(dist_sq, axis=1)
@@ -255,7 +261,9 @@ class TrackGeometry(F1DataMixin):
         # Interpolate track distance
         seg_start_dist = track_dist[:-1]
         seg_end_dist = track_dist[1:]
-        track_distance = seg_start_dist[best_seg] + best_t * (seg_end_dist[best_seg] - seg_start_dist[best_seg])
+        track_distance = seg_start_dist[best_seg] + best_t * (
+            seg_end_dist[best_seg] - seg_start_dist[best_seg]
+        )
 
         # Wrap to [0, lap_distance)
         track_distance = np.mod(track_distance, self.lap_distance).astype(np.float32)
@@ -312,8 +320,7 @@ class TrackGeometry(F1DataMixin):
             part1 = self._extract_segment_simple(from_dist, self.lap_distance)
             part2 = self._extract_segment_simple(0, to_dist - self.lap_distance)
             if part1 is not None and part2 is not None:
-                return (np.concatenate([part1[0], part2[0]]),
-                        np.concatenate([part1[1], part2[1]]))
+                return (np.concatenate([part1[0], part2[0]]), np.concatenate([part1[1], part2[1]]))
             return part1 or part2
 
         return self._extract_segment_simple(from_dist, to_dist)
@@ -337,7 +344,9 @@ class TrackGeometry(F1DataMixin):
         # Interpolate start point if needed
         if indices[0] > 0 and self.distance[indices[0]] > from_dist:
             i_prev = indices[0] - 1
-            t = (from_dist - self.distance[i_prev]) / (self.distance[indices[0]] - self.distance[i_prev])
+            t = (from_dist - self.distance[i_prev]) / (
+                self.distance[indices[0]] - self.distance[i_prev]
+            )
             x_start = self.x[i_prev] + t * (self.x[indices[0]] - self.x[i_prev])
             y_start = self.y[i_prev] + t * (self.y[indices[0]] - self.y[i_prev])
             x_seg = np.insert(x_seg, 0, x_start)
@@ -346,7 +355,9 @@ class TrackGeometry(F1DataMixin):
         # Interpolate end point if needed
         if indices[-1] < len(self.distance) - 1 and self.distance[indices[-1]] < to_dist:
             i_next = indices[-1] + 1
-            t = (to_dist - self.distance[indices[-1]]) / (self.distance[i_next] - self.distance[indices[-1]])
+            t = (to_dist - self.distance[indices[-1]]) / (
+                self.distance[i_next] - self.distance[indices[-1]]
+            )
             x_end = self.x[indices[-1]] + t * (self.x[i_next] - self.x[indices[-1]])
             y_end = self.y[indices[-1]] + t * (self.y[i_next] - self.y[indices[-1]])
             x_seg = np.append(x_seg, x_end)
@@ -363,13 +374,16 @@ class DirectionArrow(F1DataMixin):
     Position is on the outside of track (opposite pitlane).
     Direction points in racing direction.
     """
+
     x: float  # Arrow base position (decimeters)
     y: float
     dx: float  # Direction unit vector (racing direction)
     dy: float
 
     def __repr__(self) -> str:
-        return f"DirectionArrow(pos=({self.x:.0f}, {self.y:.0f}), dir=({self.dx:.2f}, {self.dy:.2f}))"
+        return (
+            f"DirectionArrow(pos=({self.x:.0f}, {self.y:.0f}), dir=({self.dx:.2f}, {self.dy:.2f}))"
+        )
 
 
 @dataclass(frozen=True)
@@ -382,12 +396,13 @@ class PitLane(F1DataMixin):
     entry_track_dist: Track distance where pit entry begins (meters)
     exit_track_dist: Track distance where pit exit ends (meters)
     """
+
     x: np.ndarray  # float32 array of X coordinates
     y: np.ndarray  # float32 array of Y coordinates
     distance: Optional[np.ndarray] = None  # Cumulative distance in meters
     length: float = 0.0  # Total pit lane length in meters
     entry_track_dist: float = 0.0  # Where pit entry meets main track
-    exit_track_dist: float = 0.0   # Where pit exit meets main track
+    exit_track_dist: float = 0.0  # Where pit exit meets main track
 
     def __repr__(self) -> str:
         n = len(self.x) if self.x is not None else 0
@@ -403,6 +418,7 @@ class CircuitData(F1DataMixin):
     - progress_on_track(x, y): Get track distance for points
     - distance_to_track(x, y): Get perpendicular distance to track
     """
+
     track: TrackGeometry  # Track outline
     pit_lane: Optional[PitLane] = None  # Pit lane with entry/exit
     circuit_length: float = 0.0  # Total track length (meters)
@@ -445,6 +461,7 @@ class CircuitData(F1DataMixin):
         """
         return self.track.distance_to_track(px, py)
 
+
 @dataclass(frozen=True)
 class F1Weekend(F1DataMixin):
     """
@@ -453,7 +470,8 @@ class F1Weekend(F1DataMixin):
     EventInfo provides all event metadata (name, location, sessions, etc.)
     CircuitData provides track geometry for visualization.
     """
-    event: 'EventInfo'  # Forward reference to avoid circular import
+
+    event: "EventInfo"  # Forward reference to avoid circular import
     circuit: CircuitData
 
     # Convenience accessors for common EventInfo fields

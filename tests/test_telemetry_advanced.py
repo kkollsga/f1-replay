@@ -11,95 +11,110 @@ import numpy as np
 import pandas as pd
 import polars as pl
 import pytest
-from f1_replay.loaders.session.telemetry import TelemetryBuilder, TrackData
 
+from f1_replay.loaders.session.telemetry import TelemetryBuilder, TrackData
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def make_telemetry_df(times, x_vals, y_vals):
     """Build a pandas DataFrame suitable for _add_velocity_vectors."""
-    return pd.DataFrame({
-        'session_time': np.array(times, dtype=np.float64),
-        'x': np.array(x_vals, dtype=np.float64),
-        'y': np.array(y_vals, dtype=np.float64),
-    })
+    return pd.DataFrame(
+        {
+            "session_time": np.array(times, dtype=np.float64),
+            "x": np.array(x_vals, dtype=np.float64),
+            "y": np.array(y_vals, dtype=np.float64),
+        }
+    )
 
 
 def make_pos_df(times_sec, x, y, z=None, status=None):
     """Build a pos_data-like DataFrame with timedelta SessionTime."""
     n = len(times_sec)
-    return pd.DataFrame({
-        'SessionTime': pd.to_timedelta(times_sec, unit='s'),
-        'X': np.array(x, dtype=np.float64),
-        'Y': np.array(y, dtype=np.float64),
-        'Z': np.array(z if z is not None else np.zeros(n), dtype=np.float64),
-        'Status': status if status is not None else ['OnTrack'] * n,
-    })
+    return pd.DataFrame(
+        {
+            "SessionTime": pd.to_timedelta(times_sec, unit="s"),
+            "X": np.array(x, dtype=np.float64),
+            "Y": np.array(y, dtype=np.float64),
+            "Z": np.array(z if z is not None else np.zeros(n), dtype=np.float64),
+            "Status": status if status is not None else ["OnTrack"] * n,
+        }
+    )
 
 
 def make_car_df(times_sec, speed=None, rpm=None, n_gear=None, throttle=None, brake=None, drs=None):
     """Build a car_data-like DataFrame with timedelta SessionTime."""
     n = len(times_sec)
-    df = pd.DataFrame({
-        'SessionTime': pd.to_timedelta(times_sec, unit='s'),
-        'Speed': np.array(speed if speed is not None else np.zeros(n)),
-        'RPM': np.array(rpm if rpm is not None else np.zeros(n)),
-        'nGear': np.array(n_gear if n_gear is not None else np.zeros(n)),
-        'Throttle': np.array(throttle if throttle is not None else np.zeros(n)),
-        'Brake': np.array(brake if brake is not None else np.zeros(n)),
-        'DRS': np.array(drs if drs is not None else np.zeros(n)),
-    })
+    df = pd.DataFrame(
+        {
+            "SessionTime": pd.to_timedelta(times_sec, unit="s"),
+            "Speed": np.array(speed if speed is not None else np.zeros(n)),
+            "RPM": np.array(rpm if rpm is not None else np.zeros(n)),
+            "nGear": np.array(n_gear if n_gear is not None else np.zeros(n)),
+            "Throttle": np.array(throttle if throttle is not None else np.zeros(n)),
+            "Brake": np.array(brake if brake is not None else np.zeros(n)),
+            "DRS": np.array(drs if drs is not None else np.zeros(n)),
+        }
+    )
     return df
 
 
-def make_driver_laps(lap_numbers, completion_times_sec, start_times_sec=None,
-                     compounds=None, tyre_life=None, pit_in_sec=None, pit_out_sec=None):
+def make_driver_laps(
+    lap_numbers,
+    completion_times_sec,
+    start_times_sec=None,
+    compounds=None,
+    tyre_life=None,
+    pit_in_sec=None,
+    pit_out_sec=None,
+):
     """Build a driver_laps DataFrame mimicking FastF1 laps structure."""
     n = len(lap_numbers)
     data = {
-        'Driver': ['TST'] * n,
-        'LapNumber': np.array(lap_numbers, dtype=np.float64),
-        'Time': pd.to_timedelta(completion_times_sec, unit='s'),
+        "Driver": ["TST"] * n,
+        "LapNumber": np.array(lap_numbers, dtype=np.float64),
+        "Time": pd.to_timedelta(completion_times_sec, unit="s"),
     }
     if start_times_sec is not None:
-        data['LapStartTime'] = pd.to_timedelta(start_times_sec, unit='s')
+        data["LapStartTime"] = pd.to_timedelta(start_times_sec, unit="s")
     else:
         # Default: each lap starts when previous one ends
         starts = [0.0] + list(completion_times_sec[:-1])
-        data['LapStartTime'] = pd.to_timedelta(starts, unit='s')
+        data["LapStartTime"] = pd.to_timedelta(starts, unit="s")
     if compounds is not None:
-        data['Compound'] = compounds
+        data["Compound"] = compounds
     if tyre_life is not None:
-        data['TyreLife'] = np.array(tyre_life, dtype=np.float64)
+        data["TyreLife"] = np.array(tyre_life, dtype=np.float64)
     if pit_in_sec is not None:
         pit_in_vals = [pd.Timedelta(seconds=t) if t is not None else pd.NaT for t in pit_in_sec]
-        data['PitInTime'] = pit_in_vals
+        data["PitInTime"] = pit_in_vals
     if pit_out_sec is not None:
         pit_out_vals = [pd.Timedelta(seconds=t) if t is not None else pd.NaT for t in pit_out_sec]
-        data['PitOutTime'] = pit_out_vals
+        data["PitOutTime"] = pit_out_vals
     return pd.DataFrame(data)
 
 
-def make_pl_telemetry(session_times, x_vals, y_vals, z_vals=None,
-                      race_distances=None, lap_numbers=None, status=None):
+def make_pl_telemetry(
+    session_times, x_vals, y_vals, z_vals=None, race_distances=None, lap_numbers=None, status=None
+):
     """Build a Polars DataFrame for _add_status_all / _add_track_distance_all."""
     data = {
-        'session_time': np.array(session_times, dtype=np.float64),
-        'x': np.array(x_vals, dtype=np.float64),
-        'y': np.array(y_vals, dtype=np.float64),
+        "session_time": np.array(session_times, dtype=np.float64),
+        "x": np.array(x_vals, dtype=np.float64),
+        "y": np.array(y_vals, dtype=np.float64),
     }
     if z_vals is not None:
-        data['z'] = np.array(z_vals, dtype=np.float64)
+        data["z"] = np.array(z_vals, dtype=np.float64)
     else:
-        data['z'] = np.zeros(len(session_times), dtype=np.float64)
+        data["z"] = np.zeros(len(session_times), dtype=np.float64)
     if race_distances is not None:
-        data['race_distance'] = np.array(race_distances, dtype=np.float32)
+        data["race_distance"] = np.array(race_distances, dtype=np.float32)
     if lap_numbers is not None:
-        data['lap_number'] = np.array(lap_numbers, dtype=np.int32)
+        data["lap_number"] = np.array(lap_numbers, dtype=np.int32)
     if status is not None:
-        data['status'] = status
+        data["status"] = status
     return pl.DataFrame(data)
 
 
@@ -114,8 +129,8 @@ class TestAddVelocityVectors:
         """n < 2 -> vx = vy = 0."""
         df = make_telemetry_df([0.0], [100.0], [200.0])
         result = TelemetryBuilder._add_velocity_vectors(df)
-        assert result['vx'].iloc[0] == 0.0
-        assert result['vy'].iloc[0] == 0.0
+        assert result["vx"].iloc[0] == 0.0
+        assert result["vy"].iloc[0] == 0.0
 
     def test_two_points(self):
         """Two points: forward diff at first, backward diff at last (no central)."""
@@ -123,10 +138,10 @@ class TestAddVelocityVectors:
         result = TelemetryBuilder._add_velocity_vectors(df)
         # With only 2 points, smoothing does nothing (< 3 points).
         # Forward/backward both give dx/dt=10, dy/dt=20
-        assert result['vx'].iloc[0] == pytest.approx(10.0, abs=0.1)
-        assert result['vy'].iloc[0] == pytest.approx(20.0, abs=0.1)
-        assert result['vx'].iloc[1] == pytest.approx(10.0, abs=0.1)
-        assert result['vy'].iloc[1] == pytest.approx(20.0, abs=0.1)
+        assert result["vx"].iloc[0] == pytest.approx(10.0, abs=0.1)
+        assert result["vy"].iloc[0] == pytest.approx(20.0, abs=0.1)
+        assert result["vx"].iloc[1] == pytest.approx(10.0, abs=0.1)
+        assert result["vy"].iloc[1] == pytest.approx(20.0, abs=0.1)
 
     def test_constant_velocity(self):
         """Uniform motion: velocity should be approximately constant after smoothing."""
@@ -137,8 +152,8 @@ class TestAddVelocityVectors:
         df = make_telemetry_df(t, x, y)
         result = TelemetryBuilder._add_velocity_vectors(df)
         # Interior points should be very close to exact velocity
-        vx_interior = result['vx'].values[3:-3]
-        vy_interior = result['vy'].values[3:-3]
+        vx_interior = result["vx"].values[3:-3]
+        vy_interior = result["vy"].values[3:-3]
         np.testing.assert_allclose(vx_interior, 50.0, atol=1.0)
         np.testing.assert_allclose(vy_interior, 30.0, atol=1.0)
 
@@ -153,11 +168,11 @@ class TestAddVelocityVectors:
         # (alpha=0.3), non-zero neighbors bleed in. The key property is that
         # the gap boundary velocities are significantly reduced compared to the
         # ~10 dm/s velocity on each side. Allow generous tolerance for smoothing.
-        assert abs(result['vx'].iloc[2]) < 7.0
-        assert abs(result['vx'].iloc[3]) < 7.0
+        assert abs(result["vx"].iloc[2]) < 7.0
+        assert abs(result["vx"].iloc[3]) < 7.0
         # Additionally verify they are smaller than the non-gap interior velocity
         # (points far from the gap should have higher velocity)
-        assert abs(result['vx'].iloc[2]) < abs(result['vx'].iloc[4]) + 1.0
+        assert abs(result["vx"].iloc[2]) < abs(result["vx"].iloc[4]) + 1.0
 
     def test_velocity_clamping(self):
         """Extreme position jump -> velocity clamped to +/- 1000 dm/s."""
@@ -168,8 +183,8 @@ class TestAddVelocityVectors:
         df = make_telemetry_df(t, x, y)
         result = TelemetryBuilder._add_velocity_vectors(df)
         # After clamping and smoothing, all vx should be within [-1000, 1000]
-        assert np.all(result['vx'].values <= 1000.0)
-        assert np.all(result['vx'].values >= -1000.0)
+        assert np.all(result["vx"].values <= 1000.0)
+        assert np.all(result["vx"].values >= -1000.0)
 
     def test_stationary_car(self):
         """x, y constant -> vx, vy approximately 0."""
@@ -178,8 +193,8 @@ class TestAddVelocityVectors:
         y = np.full(10, 300.0)
         df = make_telemetry_df(t, x, y)
         result = TelemetryBuilder._add_velocity_vectors(df)
-        np.testing.assert_allclose(result['vx'].values, 0.0, atol=1e-5)
-        np.testing.assert_allclose(result['vy'].values, 0.0, atol=1e-5)
+        np.testing.assert_allclose(result["vx"].values, 0.0, atol=1e-5)
+        np.testing.assert_allclose(result["vy"].values, 0.0, atol=1e-5)
 
     def test_circular_motion(self):
         """Car moving in circle: velocity perpendicular to radius vector."""
@@ -195,8 +210,8 @@ class TestAddVelocityVectors:
         # For circular motion, v dot r = 0 (velocity perpendicular to position)
         # Check interior points (skip edges due to boundary effects)
         for i in range(10, n - 10):
-            vx_i = result['vx'].iloc[i]
-            vy_i = result['vy'].iloc[i]
+            vx_i = result["vx"].iloc[i]
+            vy_i = result["vy"].iloc[i]
             dot = vx_i * x[i] + vy_i * y[i]
             speed = np.sqrt(vx_i**2 + vy_i**2)
             if speed > 1.0:  # avoid div-by-zero on near-stationary
@@ -217,8 +232,8 @@ class TestSampleCarData:
         pos = make_pos_df(times, [10, 20, 30], [40, 50, 60])
         car = make_car_df(times, speed=[100, 200, 300], rpm=[5000, 6000, 7000])
         result = TelemetryBuilder._sample_car_data(pos, car)
-        np.testing.assert_array_equal(result['speed'].values, [100, 200, 300])
-        np.testing.assert_array_equal(result['rpm'].values, [5000, 6000, 7000])
+        np.testing.assert_array_equal(result["speed"].values, [100, 200, 300])
+        np.testing.assert_array_equal(result["rpm"].values, [5000, 6000, 7000])
 
     def test_nearest_neighbor(self):
         """car_data sampled to nearest pos timestamp."""
@@ -229,32 +244,46 @@ class TestSampleCarData:
         # pos t=1.0 -> nearest car t=0.9 -> speed=100
         # pos t=2.0 -> nearest car t=2.1 -> speed=200
         # pos t=3.0 -> nearest car t=3.5 (dist=0.5) vs t=2.1 (dist=0.9) -> speed=300
-        assert result['speed'].iloc[0] == 100
-        assert result['speed'].iloc[1] == 200
-        assert result['speed'].iloc[2] == 300
+        assert result["speed"].iloc[0] == 100
+        assert result["speed"].iloc[1] == 200
+        assert result["speed"].iloc[2] == 300
 
     def test_missing_columns(self):
         """Missing car columns default to 0."""
         pos = make_pos_df([1.0], [10], [20])
         # Car DataFrame with only Speed column
-        car = pd.DataFrame({
-            'SessionTime': pd.to_timedelta([1.0], unit='s'),
-            'Speed': [100],
-        })
+        car = pd.DataFrame(
+            {
+                "SessionTime": pd.to_timedelta([1.0], unit="s"),
+                "Speed": [100],
+            }
+        )
         result = TelemetryBuilder._sample_car_data(pos, car)
-        assert result['speed'].iloc[0] == 100
-        assert result['rpm'].iloc[0] == 0
-        assert result['n_gear'].iloc[0] == 0
-        assert result['throttle'].iloc[0] == 0
-        assert result['brake'].iloc[0] == 0
-        assert result['drs'].iloc[0] == 0
+        assert result["speed"].iloc[0] == 100
+        assert result["rpm"].iloc[0] == 0
+        assert result["n_gear"].iloc[0] == 0
+        assert result["throttle"].iloc[0] == 0
+        assert result["brake"].iloc[0] == 0
+        assert result["drs"].iloc[0] == 0
 
     def test_column_names(self):
         """Output has snake_case column names."""
         pos = make_pos_df([1.0], [10], [20])
         car = make_car_df([1.0])
         result = TelemetryBuilder._sample_car_data(pos, car)
-        expected_cols = {'session_time', 'status', 'x', 'y', 'z', 'rpm', 'speed', 'n_gear', 'throttle', 'brake', 'drs'}
+        expected_cols = {
+            "session_time",
+            "status",
+            "x",
+            "y",
+            "z",
+            "rpm",
+            "speed",
+            "n_gear",
+            "throttle",
+            "brake",
+            "drs",
+        }
         assert expected_cols.issubset(set(result.columns))
 
 
@@ -267,9 +296,9 @@ class TestAddLapInfo:
 
     def test_no_laps(self):
         """None driver_laps -> lap_number all 0, no pit windows."""
-        df = pd.DataFrame({'session_time': [1.0, 2.0, 3.0]})
+        df = pd.DataFrame({"session_time": [1.0, 2.0, 3.0]})
         result_df, max_lap, finish_time, pit_windows = TelemetryBuilder._add_lap_info(df, None)
-        np.testing.assert_array_equal(result_df['lap_number'].values, [0, 0, 0])
+        np.testing.assert_array_equal(result_df["lap_number"].values, [0, 0, 0])
         assert max_lap == 0
         assert finish_time is None
         assert pit_windows == []
@@ -282,19 +311,23 @@ class TestAddLapInfo:
             completion_times_sec=[90.0, 180.0, 270.0],
             start_times_sec=[0.0, 90.0, 180.0],
         )
-        tel = pd.DataFrame({'session_time': [
-            -5.0,   # before race start -> lap 0
-            10.0,   # after start, before lap 1 complete -> lap 1
-            95.0,   # after lap 1 complete -> lap 2
-            185.0,  # after lap 2 complete -> lap 3
-            275.0,  # after lap 3 complete -> lap 4
-        ]})
+        tel = pd.DataFrame(
+            {
+                "session_time": [
+                    -5.0,  # before race start -> lap 0
+                    10.0,  # after start, before lap 1 complete -> lap 1
+                    95.0,  # after lap 1 complete -> lap 2
+                    185.0,  # after lap 2 complete -> lap 3
+                    275.0,  # after lap 3 complete -> lap 4
+                ]
+            }
+        )
         result, max_lap, finish_time, _ = TelemetryBuilder._add_lap_info(tel, laps)
-        assert result['lap_number'].iloc[0] == 0   # before race start
-        assert result['lap_number'].iloc[1] == 1   # during lap 1
-        assert result['lap_number'].iloc[2] == 2   # after lap 1 done
-        assert result['lap_number'].iloc[3] == 3   # after lap 2 done
-        assert result['lap_number'].iloc[4] == 4   # after lap 3 done
+        assert result["lap_number"].iloc[0] == 0  # before race start
+        assert result["lap_number"].iloc[1] == 1  # during lap 1
+        assert result["lap_number"].iloc[2] == 2  # after lap 1 done
+        assert result["lap_number"].iloc[3] == 3  # after lap 2 done
+        assert result["lap_number"].iloc[4] == 4  # after lap 3 done
         assert max_lap == 3
         assert finish_time == pytest.approx(270.0)
 
@@ -304,10 +337,10 @@ class TestAddLapInfo:
             lap_numbers=[1, 2, 3],
             completion_times_sec=[90.0, 180.0, 270.0],
             start_times_sec=[0.0, 90.0, 180.0],
-            pit_in_sec=[85.0, None, None],    # pit in on lap 1
+            pit_in_sec=[85.0, None, None],  # pit in on lap 1
             pit_out_sec=[None, 100.0, None],  # pit out on lap 2
         )
-        tel = pd.DataFrame({'session_time': [50.0]})
+        tel = pd.DataFrame({"session_time": [50.0]})
         _, _, _, pit_windows = TelemetryBuilder._add_lap_info(tel, laps)
         assert len(pit_windows) == 1
         assert pit_windows[0][0] == pytest.approx(85.0)
@@ -319,7 +352,7 @@ class TestAddLapInfo:
             lap_numbers=[1, 2],
             completion_times_sec=[90.0, 180.0],
         )
-        tel = pd.DataFrame({'session_time': [50.0]})
+        tel = pd.DataFrame({"session_time": [50.0]})
         _, _, finish_time, _ = TelemetryBuilder._add_lap_info(tel, laps)
         assert finish_time == pytest.approx(180.0)
 
@@ -329,17 +362,21 @@ class TestAddLapInfo:
             lap_numbers=[1, 2, 3],
             completion_times_sec=[90.0, 180.0, 270.0],
             start_times_sec=[0.0, 90.0, 180.0],
-            compounds=['SOFT', 'SOFT', 'HARD'],
+            compounds=["SOFT", "SOFT", "HARD"],
         )
-        tel = pd.DataFrame({'session_time': [
-            10.0,   # during lap 1 -> SOFT
-            100.0,  # during lap 2 -> SOFT
-            200.0,  # during lap 3 -> HARD
-        ]})
+        tel = pd.DataFrame(
+            {
+                "session_time": [
+                    10.0,  # during lap 1 -> SOFT
+                    100.0,  # during lap 2 -> SOFT
+                    200.0,  # during lap 3 -> HARD
+                ]
+            }
+        )
         result, _, _, _ = TelemetryBuilder._add_lap_info(tel, laps)
-        assert result['compound'].iloc[0] == 'SOFT'
-        assert result['compound'].iloc[1] == 'SOFT'
-        assert result['compound'].iloc[2] == 'HARD'
+        assert result["compound"].iloc[0] == "SOFT"
+        assert result["compound"].iloc[1] == "SOFT"
+        assert result["compound"].iloc[2] == "HARD"
 
 
 # ===========================================================================
@@ -350,92 +387,104 @@ class TestAddLapInfo:
 class TestAddStatusAll:
 
     def _run(self, tel_dict, status_data_all, warmup_intervals=None, lights_out_offset=None):
-        return TelemetryBuilder._add_status_all(tel_dict, status_data_all,
-                                                warmup_intervals, lights_out_offset)
+        return TelemetryBuilder._add_status_all(
+            tel_dict, status_data_all, warmup_intervals, lights_out_offset
+        )
 
     def test_presession_status(self):
         """Times before warmup -> PreSession."""
         tel = make_pl_telemetry(
-            [1.0, 2.0], [0, 10], [0, 10],
-            race_distances=[0.0, 1.0], lap_numbers=[0, 0],
+            [1.0, 2.0],
+            [0, 10],
+            [0, 10],
+            race_distances=[0.0, 1.0],
+            lap_numbers=[0, 0],
         )
         result = self._run(
-            {'DRV': tel},
-            {'DRV': {'finish_time': None, 'pit_windows': [], 'is_dnf': False}},
+            {"DRV": tel},
+            {"DRV": {"finish_time": None, "pit_windows": [], "is_dnf": False}},
             warmup_intervals=[(5.0, 10.0)],
             lights_out_offset=10.0,
         )
-        statuses = result['DRV']['status'].to_list()
-        assert all(s == 'PreSession' for s in statuses)
+        statuses = result["DRV"]["status"].to_list()
+        assert all(s == "PreSession" for s in statuses)
 
     def test_warmup_status(self):
         """Times in warmup interval -> WarmUp."""
         tel = make_pl_telemetry(
-            [5.0, 6.0, 7.0], [0, 10, 20], [0, 10, 20],
-            race_distances=[0.0, 1.0, 2.0], lap_numbers=[0, 0, 0],
+            [5.0, 6.0, 7.0],
+            [0, 10, 20],
+            [0, 10, 20],
+            race_distances=[0.0, 1.0, 2.0],
+            lap_numbers=[0, 0, 0],
         )
         result = self._run(
-            {'DRV': tel},
-            {'DRV': {'finish_time': None, 'pit_windows': [], 'is_dnf': False}},
+            {"DRV": tel},
+            {"DRV": {"finish_time": None, "pit_windows": [], "is_dnf": False}},
             warmup_intervals=[(4.0, 8.0)],
             lights_out_offset=10.0,
         )
-        statuses = result['DRV']['status'].to_list()
-        assert all(s == 'WarmUp' for s in statuses)
+        statuses = result["DRV"]["status"].to_list()
+        assert all(s == "WarmUp" for s in statuses)
 
     def test_racing_status(self):
         """Times after lights_out with no other conditions -> Racing."""
         tel = make_pl_telemetry(
-            [15.0, 16.0, 17.0], [0, 10, 20], [0, 10, 20],
-            race_distances=[100.0, 110.0, 120.0], lap_numbers=[1, 1, 1],
+            [15.0, 16.0, 17.0],
+            [0, 10, 20],
+            [0, 10, 20],
+            race_distances=[100.0, 110.0, 120.0],
+            lap_numbers=[1, 1, 1],
         )
         result = self._run(
-            {'DRV': tel},
-            {'DRV': {'finish_time': None, 'pit_windows': [], 'is_dnf': False}},
+            {"DRV": tel},
+            {"DRV": {"finish_time": None, "pit_windows": [], "is_dnf": False}},
             warmup_intervals=[(5.0, 10.0)],
             lights_out_offset=10.0,
         )
-        statuses = result['DRV']['status'].to_list()
-        assert all(s == 'Racing' for s in statuses)
+        statuses = result["DRV"]["status"].to_list()
+        assert all(s == "Racing" for s in statuses)
 
     def test_pit_status(self):
         """Times in pit window -> Pit."""
         tel = make_pl_telemetry(
             [100.0, 101.0, 102.0, 110.0],
-            [0, 10, 20, 30], [0, 10, 20, 30],
+            [0, 10, 20, 30],
+            [0, 10, 20, 30],
             race_distances=[100.0, 110.0, 120.0, 130.0],
             lap_numbers=[2, 2, 2, 2],
         )
         result = self._run(
-            {'DRV': tel},
-            {'DRV': {'finish_time': None, 'pit_windows': [(99.0, 103.0)], 'is_dnf': False}},
+            {"DRV": tel},
+            {"DRV": {"finish_time": None, "pit_windows": [(99.0, 103.0)], "is_dnf": False}},
             warmup_intervals=[(5.0, 10.0)],
             lights_out_offset=10.0,
         )
-        statuses = result['DRV']['status'].to_list()
-        assert statuses[0] == 'Pit'
-        assert statuses[1] == 'Pit'
-        assert statuses[2] == 'Pit'
-        assert statuses[3] == 'Racing'
+        statuses = result["DRV"]["status"].to_list()
+        assert statuses[0] == "Pit"
+        assert statuses[1] == "Pit"
+        assert statuses[2] == "Pit"
+        assert statuses[3] == "Racing"
 
     def test_finished_status(self):
         """Times after finish_time -> Finished."""
         tel = make_pl_telemetry(
             [100.0, 200.0, 300.0],
-            [0, 100, 200], [0, 100, 200],
+            [0, 100, 200],
+            [0, 100, 200],
             race_distances=[1000.0, 2000.0, 3000.0],
             lap_numbers=[5, 10, 15],
         )
         result = self._run(
-            {'DRV': tel},
-            {'DRV': {'finish_time': 250.0, 'pit_windows': [], 'is_dnf': False}},
+            {"DRV": tel},
+            {"DRV": {"finish_time": 250.0, "pit_windows": [], "is_dnf": False}},
             warmup_intervals=[(5.0, 10.0)],
             lights_out_offset=10.0,
         )
-        statuses = result['DRV']['status'].to_list()
-        assert statuses[0] == 'Racing'
-        assert statuses[1] == 'Racing'
-        assert statuses[2] == 'Finished'
+        statuses = result["DRV"]["status"].to_list()
+        assert statuses[0] == "Racing"
+        assert statuses[1] == "Racing"
+        assert statuses[2] == "Finished"
 
     def test_retired_from_static(self):
         """Car stops moving for > 50 rows -> Retired."""
@@ -448,57 +497,62 @@ class TestAddStatusAll:
         rd = list(np.arange(n_moving + n_static, dtype=np.float32))
         ln = [1] * (n_moving + n_static)
 
-        tel = make_pl_telemetry(times, x_vals, y_vals, z_vals=z_vals,
-                                race_distances=rd, lap_numbers=ln)
+        tel = make_pl_telemetry(
+            times, x_vals, y_vals, z_vals=z_vals, race_distances=rd, lap_numbers=ln
+        )
         result = self._run(
-            {'DRV': tel},
-            {'DRV': {'finish_time': None, 'pit_windows': [], 'is_dnf': False}},
+            {"DRV": tel},
+            {"DRV": {"finish_time": None, "pit_windows": [], "is_dnf": False}},
             warmup_intervals=[],
             lights_out_offset=0.0,
         )
-        statuses = result['DRV']['status'].to_list()
+        statuses = result["DRV"]["status"].to_list()
         # Last 60 rows should be Retired (static detection triggers retirement)
         # The moving rows should be Racing
-        assert statuses[0] == 'Racing'
-        assert statuses[-1] == 'Retired'
-        retired_count = sum(1 for s in statuses if s == 'Retired')
+        assert statuses[0] == "Racing"
+        assert statuses[-1] == "Retired"
+        retired_count = sum(1 for s in statuses if s == "Retired")
         assert retired_count >= n_static
 
     def test_status_priority(self):
         """PreSession takes priority over other conditions.
         Pit window during warmup -> WarmUp wins (higher priority in np.select order)."""
         tel = make_pl_telemetry(
-            [6.0, 7.0], [0, 10], [0, 10],
-            race_distances=[0.0, 1.0], lap_numbers=[0, 0],
+            [6.0, 7.0],
+            [0, 10],
+            [0, 10],
+            race_distances=[0.0, 1.0],
+            lap_numbers=[0, 0],
         )
         result = self._run(
-            {'DRV': tel},
-            {'DRV': {'finish_time': None, 'pit_windows': [(5.0, 8.0)], 'is_dnf': False}},
+            {"DRV": tel},
+            {"DRV": {"finish_time": None, "pit_windows": [(5.0, 8.0)], "is_dnf": False}},
             warmup_intervals=[(5.0, 10.0)],
             lights_out_offset=10.0,
         )
-        statuses = result['DRV']['status'].to_list()
+        statuses = result["DRV"]["status"].to_list()
         # WarmUp has lower priority than Pit in np.select conditions list,
         # but Pit comes before WarmUp in conditions. Let's check actual priority:
         # conditions = [is_presession, is_retired, is_finished, is_pit, is_warmup]
         # Pit is checked before WarmUp, so Pit should win.
-        assert all(s == 'Pit' for s in statuses)
+        assert all(s == "Pit" for s in statuses)
 
     def test_race_distance_frozen_on_finish(self):
         """race_distance stays constant after Finished."""
         tel = make_pl_telemetry(
             [100.0, 200.0, 250.0, 300.0],
-            [0, 100, 200, 300], [0, 100, 200, 300],
+            [0, 100, 200, 300],
+            [0, 100, 200, 300],
             race_distances=[1000.0, 2000.0, 2500.0, 3000.0],
             lap_numbers=[5, 10, 12, 15],
         )
         result = self._run(
-            {'DRV': tel},
-            {'DRV': {'finish_time': 220.0, 'pit_windows': [], 'is_dnf': False}},
+            {"DRV": tel},
+            {"DRV": {"finish_time": 220.0, "pit_windows": [], "is_dnf": False}},
             warmup_intervals=[],
             lights_out_offset=0.0,
         )
-        rd = result['DRV']['race_distance'].to_list()
+        rd = result["DRV"]["race_distance"].to_list()
         # After finish (idx 2 and 3), race_distance should be frozen to value before finish
         assert rd[2] == pytest.approx(rd[3])
         # Frozen value should be from idx 1 (last before finish)
@@ -516,15 +570,16 @@ class TestAddStatusAll:
         rd = list(np.arange(total, dtype=np.float32) * 10.0)
         ln = [1] * total
 
-        tel = make_pl_telemetry(times, x_vals, y_vals, z_vals=z_vals,
-                                race_distances=rd, lap_numbers=ln)
+        tel = make_pl_telemetry(
+            times, x_vals, y_vals, z_vals=z_vals, race_distances=rd, lap_numbers=ln
+        )
         result = self._run(
-            {'DRV': tel},
-            {'DRV': {'finish_time': None, 'pit_windows': [], 'is_dnf': True}},
+            {"DRV": tel},
+            {"DRV": {"finish_time": None, "pit_windows": [], "is_dnf": True}},
             warmup_intervals=[],
             lights_out_offset=0.0,
         )
-        rd_out = result['DRV']['race_distance'].to_list()
+        rd_out = result["DRV"]["race_distance"].to_list()
         # All retired points should have same race_distance
         retired_rd = rd_out[n_moving:]
         assert all(v == pytest.approx(retired_rd[0]) for v in retired_rd)
@@ -564,15 +619,17 @@ class TestAddTrackDistanceAll:
         """Points on circular track get correct track_distance."""
         track = self._make_circular_track(n_points=360, radius=1000.0)
         # Place a car at theta=pi/2 (top of circle)
-        px = np.array([0.0], dtype=np.float32)   # cos(pi/2) * 1000
+        px = np.array([0.0], dtype=np.float32)  # cos(pi/2) * 1000
         py = np.array([1000.0], dtype=np.float32)  # sin(pi/2) * 1000
 
         tel = make_pl_telemetry(
-            session_times=[100.0], x_vals=px, y_vals=py,
+            session_times=[100.0],
+            x_vals=px,
+            y_vals=py,
         )
-        session_timing = {'warmup_start_time': 50.0}
-        result = TelemetryBuilder._add_track_distance_all({'DRV': tel}, track, session_timing)
-        td = result['DRV']['track_distance'].to_numpy()[0]
+        session_timing = {"warmup_start_time": 50.0}
+        result = TelemetryBuilder._add_track_distance_all({"DRV": tel}, track, session_timing)
+        td = result["DRV"]["track_distance"].to_numpy()[0]
         # Track distance in meters (converted from dm in the method)
         # Quarter of circumference = pi*1000/2 dm -> /10 = pi*100/2 meters
         expected_m = (np.pi * 1000.0 / 2.0) / 10.0  # quarter circle in meters
@@ -593,9 +650,9 @@ class TestAddTrackDistanceAll:
         times = np.arange(total_n, dtype=np.float64) * dt
 
         tel = make_pl_telemetry(times, x_vals, y_vals)
-        session_timing = {'warmup_start_time': 0.0}
-        result = TelemetryBuilder._add_track_distance_all({'DRV': tel}, track, session_timing)
-        lap_nums = result['DRV']['lap_number'].to_numpy()
+        session_timing = {"warmup_start_time": 0.0}
+        result = TelemetryBuilder._add_track_distance_all({"DRV": tel}, track, session_timing)
+        lap_nums = result["DRV"]["lap_number"].to_numpy()
         # Should have detected at least 1 wrap (lap transitions)
         assert lap_nums.max() >= 1
 
@@ -632,15 +689,15 @@ class TestAddTrackDistanceAll:
         y_vals = (1000.0 * np.sin(all_theta)).astype(np.float32)
 
         tel = make_pl_telemetry(all_times, x_vals, y_vals)
-        session_timing = {'warmup_start_time': 10.0}
-        result = TelemetryBuilder._add_track_distance_all({'DRV': tel}, track, session_timing)
-        lap_nums = result['DRV']['lap_number'].to_numpy()
+        session_timing = {"warmup_start_time": 10.0}
+        result = TelemetryBuilder._add_track_distance_all({"DRV": tel}, track, session_timing)
+        lap_nums = result["DRV"]["lap_number"].to_numpy()
 
         # Pre-session points should be -1
         assert all(lap_nums[i] == -1 for i in range(n_pre))
         # Warmup points should be 0 (or -1 if before warmup start)
         # At least some warmup points should be 0
-        warmup_laps = lap_nums[n_pre:n_pre + n_warmup]
+        warmup_laps = lap_nums[n_pre : n_pre + n_warmup]
         assert 0 in warmup_laps
 
     def test_race_distance_calculation(self):
@@ -655,21 +712,22 @@ class TestAddTrackDistanceAll:
         times = np.array([100.0, 101.0, 102.0, 103.0, 104.0])
         # Car at start/finish line
         x_vals = np.full(n, 1000.0, dtype=np.float32)  # cos(0) * R
-        y_vals = np.full(n, 0.0, dtype=np.float32)      # sin(0) * R
+        y_vals = np.full(n, 0.0, dtype=np.float32)  # sin(0) * R
 
         tel = make_pl_telemetry(times, x_vals, y_vals)
-        session_timing = {'warmup_start_time': 50.0}
-        result = TelemetryBuilder._add_track_distance_all({'DRV': tel}, track, session_timing)
+        session_timing = {"warmup_start_time": 50.0}
+        result = TelemetryBuilder._add_track_distance_all({"DRV": tel}, track, session_timing)
 
-        td = result['DRV']['track_distance'].to_numpy()
-        rd = result['DRV']['race_distance'].to_numpy().astype(np.float64)
-        ln = result['DRV']['lap_number'].to_numpy()
+        td = result["DRV"]["track_distance"].to_numpy()
+        rd = result["DRV"]["race_distance"].to_numpy().astype(np.float64)
+        ln = result["DRV"]["lap_number"].to_numpy()
 
         # Verify the formula for each point
         for i in range(n):
             expected_rd = (ln[i] - 1) * lap_dist_m + td[i]
-            assert rd[i] == pytest.approx(expected_rd, abs=1.0), \
-                f"At i={i}: rd={rd[i]}, expected={expected_rd}, ln={ln[i]}, td={td[i]}"
+            assert rd[i] == pytest.approx(
+                expected_rd, abs=1.0
+            ), f"At i={i}: rd={rd[i]}, expected={expected_rd}, ln={ln[i]}, td={td[i]}"
 
     def test_min_lap_time_filter(self):
         """Wraps less than 60s apart are filtered out."""
@@ -678,7 +736,9 @@ class TestAddTrackDistanceAll:
         # Simulate two quick wraps (< 60s apart) which should be filtered
         # Then a valid wrap (> 60s)
         n = 30
-        times = np.arange(n, dtype=np.float64) * 2.0  # 2s apart, so 30 points = 58s total first "lap"
+        times = (
+            np.arange(n, dtype=np.float64) * 2.0
+        )  # 2s apart, so 30 points = 58s total first "lap"
         # First wrap at ~10s into the data (too soon for a real lap)
         # Create theta that wraps once quickly, then properly
         theta = np.zeros(n)
@@ -693,11 +753,13 @@ class TestAddTrackDistanceAll:
         y_vals = (1000.0 * np.sin(theta)).astype(np.float32)
 
         tel = make_pl_telemetry(times, x_vals, y_vals)
-        session_timing = {'warmup_start_time': 0.0}
-        result = TelemetryBuilder._add_track_distance_all({'DRV': tel}, track, session_timing)
-        lap_nums = result['DRV']['lap_number'].to_numpy()
+        session_timing = {"warmup_start_time": 0.0}
+        result = TelemetryBuilder._add_track_distance_all({"DRV": tel}, track, session_timing)
+        lap_nums = result["DRV"]["lap_number"].to_numpy()
 
         # The spurious quick wraps should be filtered; max lap should be limited
         # Quick wraps within 60s of each other should not increment lap_number significantly
         # At most we should see lap 0 and 1 (not 3+ from unfiltered wraps)
-        assert lap_nums.max() <= 2, f"Max lap {lap_nums.max()} too high - spurious wraps not filtered"
+        assert (
+            lap_nums.max() <= 2
+        ), f"Max lap {lap_nums.max()} too high - spurious wraps not filtered"

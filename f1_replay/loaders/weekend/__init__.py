@@ -2,4 +2,4 @@
 
 from f1_replay.loaders.weekend.processor import WeekendProcessor
 
-__all__ = ['WeekendProcessor']
+__all__ = ["WeekendProcessor"]

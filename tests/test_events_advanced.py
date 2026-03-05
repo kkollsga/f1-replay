@@ -1,20 +1,27 @@
 """Tests for f1_replay.loaders.session.events: parse_time, consolidate, and synthetic events."""
 
-import pytest
 import pandas as pd
+import pytest
 
-from f1_replay.models import TrackStatusEvent, T0Info
 from f1_replay.loaders.session.events import (
-    parse_time_to_session_seconds,
-    consolidate_track_status_intervals,
     add_synthetic_events,
+    consolidate_track_status_intervals,
+    parse_time_to_session_seconds,
 )
+from f1_replay.models import T0Info, TrackStatusEvent
 
 
-def make_event(session_time, status, message="", scope="Track", sector=None, driver_num="", end_time=None):
+def make_event(
+    session_time, status, message="", scope="Track", sector=None, driver_num="", end_time=None
+):
     return TrackStatusEvent(
-        session_time=session_time, status=status, message=message,
-        scope=scope, sector=sector, driver_num=driver_num, end_time=end_time
+        session_time=session_time,
+        status=status,
+        message=message,
+        scope=scope,
+        sector=sector,
+        driver_num=driver_num,
+        end_time=end_time,
     )
 
 
@@ -55,6 +62,7 @@ class TestParseTimeToSessionSeconds:
         class BadValue:
             def __float__(self):
                 raise ValueError("nope")
+
         assert parse_time_to_session_seconds(BadValue(), None, None) == 0.0
 
 
@@ -73,11 +81,11 @@ class TestConsolidateTrackStatus:
     def test_empty_list(self):
         intervals, report = consolidate_track_status_intervals([], None)
         assert intervals == []
-        assert report['total_input_events'] == 0
-        assert report['total_output_intervals'] == 0
-        assert report['summary']['merged_count'] == 0
-        assert report['summary']['instant_count'] == 0
-        assert report['summary']['ongoing_count'] == 0
+        assert report["total_input_events"] == 0
+        assert report["total_output_intervals"] == 0
+        assert report["summary"]["merged_count"] == 0
+        assert report["summary"]["instant_count"] == 0
+        assert report["summary"]["ongoing_count"] == 0
 
     def test_warmup_to_lights_out(self):
         events = [
@@ -165,7 +173,7 @@ class TestConsolidateTrackStatus:
         assert intervals[0].status == "Rain"
         assert intervals[0].session_time == 100.0
         assert intervals[0].end_time == 300.0
-        assert report['summary']['merged_count'] == 1
+        assert report["summary"]["merged_count"] == 1
 
     def test_blue_flag_instant(self):
         blue = make_event(60.0, "Blue", "BLUE FLAG FOR 44", driver_num="44")
@@ -174,7 +182,7 @@ class TestConsolidateTrackStatus:
         assert intervals[0].status == "Blue"
         assert intervals[0].session_time == 60.0
         assert intervals[0].end_time is None
-        assert report['summary']['instant_count'] == 1
+        assert report["summary"]["instant_count"] == 1
 
     def test_aborted_start(self):
         events = [
@@ -189,7 +197,7 @@ class TestConsolidateTrackStatus:
         assert warmup[0].end_time == 25.0
         assert len(aborted) == 1
         assert aborted[0].session_time == 25.0
-        assert report['summary']['instant_count'] == 1
+        assert report["summary"]["instant_count"] == 1
 
     def test_ongoing_status(self):
         events = [
@@ -199,7 +207,7 @@ class TestConsolidateTrackStatus:
         assert len(intervals) == 1
         assert intervals[0].status == "Yellow"
         assert intervals[0].end_time is None
-        assert report['summary']['ongoing_count'] == 1
+        assert report["summary"]["ongoing_count"] == 1
 
     def test_formation_lap_then_lights_out(self):
         events = [
@@ -235,10 +243,10 @@ class TestConsolidateTrackStatus:
             make_event(200.0, "Yellow", scope="Sector", sector=2),
         ]
         _, report = consolidate_track_status_intervals(events, None)
-        assert report['total_input_events'] == 6
-        assert report['summary']['merged_count'] == 2  # WarmUp + Yellow sector 1
-        assert report['summary']['instant_count'] == 2  # LightsOut + Blue
-        assert report['summary']['ongoing_count'] == 1  # Yellow sector 2
+        assert report["total_input_events"] == 6
+        assert report["summary"]["merged_count"] == 2  # WarmUp + Yellow sector 1
+        assert report["summary"]["instant_count"] == 2  # LightsOut + Blue
+        assert report["summary"]["ongoing_count"] == 1  # Yellow sector 2
 
 
 # ---------------------------------------------------------------------------

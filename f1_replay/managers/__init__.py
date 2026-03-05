@@ -13,7 +13,7 @@ from f1_replay.managers.race_manager import Manager
 from f1_replay.models import LoadResult
 
 __all__ = [
-    'DataLoader',
-    'LoadResult',
-    'Manager',
+    "DataLoader",
+    "LoadResult",
+    "Manager",
 ]

@@ -5,7 +5,7 @@ Provides F1DataMixin with dict-like access for all dataclasses.
 """
 
 from dataclasses import fields
-from typing import Dict, List, Any
+from typing import Any, Dict, List
 
 
 class F1DataMixin:

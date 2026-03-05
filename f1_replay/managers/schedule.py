@@ -4,8 +4,8 @@ Schedule utilities - ScheduleList and schedule formatting helpers.
 Extracted from race_manager.py to reduce file size.
 """
 
-from typing import List, Dict, Any, Optional
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 
 class ScheduleList(list):
@@ -40,10 +40,10 @@ class ScheduleList(list):
 
         for item in self:
             # Parse start time
-            start = item.get('start')
+            start = item.get("start")
             if isinstance(start, str):
                 try:
-                    start = datetime.fromisoformat(start.replace('Z', '+00:00'))
+                    start = datetime.fromisoformat(start.replace("Z", "+00:00"))
                 except (ValueError, TypeError):
                     pass
 
@@ -55,9 +55,9 @@ class ScheduleList(list):
                 date_str = str(start)[:10] if start else "TBD"
                 time_str = ""
 
-            title = item.get('title', 'Unknown')
-            location = item.get('location', '')
-            round_num = item.get('round', '')
+            title = item.get("title", "Unknown")
+            location = item.get("location", "")
+            round_num = item.get("round", "")
 
             # Format: "  R01  Sun 16 Mar  15:00  Bahrain Grand Prix (Sakhir)"
             round_str = f"R{round_num:02d}" if isinstance(round_num, int) else str(round_num)
@@ -73,10 +73,10 @@ def format_date_range(start_date: str, end_date: str) -> str:
     """Format date range like '26 - 28 Feb' or '28 Feb - 2 Mar'."""
 
     def parse_date(s):
-        if not s or 'NaT' in str(s) or len(str(s)) < 10:
+        if not s or "NaT" in str(s) or len(str(s)) < 10:
             return None
         try:
-            return datetime.strptime(str(s)[:10], '%Y-%m-%d')
+            return datetime.strptime(str(s)[:10], "%Y-%m-%d")
         except (ValueError, TypeError):
             return None
 
@@ -86,9 +86,9 @@ def format_date_range(start_date: str, end_date: str) -> str:
     if start is None and end is None:
         return "TBD"
     if start is None:
-        return end.strftime('%d %b')
+        return end.strftime("%d %b")
     if end is None:
-        return start.strftime('%d %b')
+        return start.strftime("%d %b")
 
     # Same month or different months - always use end month
     return f"{start.day:2d} - {end.day:2d} {end.strftime('%b')}"
@@ -96,34 +96,37 @@ def format_date_range(start_date: str, end_date: str) -> str:
 
 def build_schedule_item(event, session_num: int, round_num: int) -> Optional[Dict[str, Any]]:
     """Build a schedule item dict from event row and session number."""
-    session_name = event.get(f'Session{session_num}')
-    session_date = event.get(f'Session{session_num}Date')
+    session_name = event.get(f"Session{session_num}")
+    session_date = event.get(f"Session{session_num}Date")
 
     if not session_name or session_date is None:
         return None
 
     # Get end time (estimate 2 hours for races, 1 hour for others)
-    duration_hours = 2 if session_name in ['Race', 'Sprint'] else 1
+    duration_hours = 2 if session_name in ["Race", "Sprint"] else 1
     try:
-        end_time = session_date + __import__('datetime').timedelta(hours=duration_hours)
+        end_time = session_date + __import__("datetime").timedelta(hours=duration_hours)
     except (ValueError, TypeError):
         end_time = None
 
     return {
-        'title': f"{event.get('EventName', '')} - {session_name}",
-        'start': session_date.isoformat() if hasattr(session_date, 'isoformat') else str(session_date),
-        'end': end_time.isoformat() if end_time and hasattr(end_time, 'isoformat') else None,
-        'session_type': session_name,
-        'round': round_num,
-        'location': event.get('Location', ''),
-        'country': event.get('Country', ''),
-        'event_name': event.get('EventName', '')
+        "title": f"{event.get('EventName', '')} - {session_name}",
+        "start": (
+            session_date.isoformat() if hasattr(session_date, "isoformat") else str(session_date)
+        ),
+        "end": end_time.isoformat() if end_time and hasattr(end_time, "isoformat") else None,
+        "session_type": session_name,
+        "round": round_num,
+        "location": event.get("Location", ""),
+        "country": event.get("Country", ""),
+        "event_name": event.get("EventName", ""),
     }
 
 
 def get_event_schedule(year: int):
     """Get FastF1 event schedule for a year."""
     import fastf1
+
     return fastf1.get_event_schedule(year)
 
 
@@ -135,15 +138,15 @@ def session_type_schedule(year: int, session_names: List[str], label: str) -> Sc
 
     items = []
     for _, event in schedule.iterrows():
-        round_num = event.get('RoundNumber', 0)
+        round_num = event.get("RoundNumber", 0)
         if round_num == 0:
             continue
 
         for i in range(1, 6):
-            if event.get(f'Session{i}') in session_names:
+            if event.get(f"Session{i}") in session_names:
                 item = build_schedule_item(event, i, round_num)
                 if item:
-                    item['title'] = event.get('EventName', '')
+                    item["title"] = event.get("EventName", "")
                     items.append(item)
                 break
 

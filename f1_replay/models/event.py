@@ -6,12 +6,13 @@ used from seasons catalog through weekend loading.
 """
 
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 
 
 @dataclass(frozen=True)
 class SessionInfo:
     """Individual session information."""
+
     name: str  # "FP1", "Q", "R", etc.
     date: str  # ISO datetime "2024-05-23T13:30:00+02:00"
 
@@ -42,6 +43,7 @@ class EventInfo:
         timezone_offset: UTC offset, e.g., "+02:00"
         format: "conventional" or "sprint_qualifying"
     """
+
     name: str
     official_name: str
     circuit_name: str
@@ -49,7 +51,7 @@ class EventInfo:
     year: int
     round_number: int
     start_date: str  # ISO date "2024-05-23"
-    end_date: str    # ISO date "2024-05-26"
+    end_date: str  # ISO date "2024-05-26"
     sessions: List[SessionInfo] = field(default_factory=list)
     timezone_offset: str = ""
     format: str = "conventional"
@@ -74,6 +76,7 @@ class EventInfo:
 def format_date_range(event: EventInfo) -> str:
     """Format event date range like '23-26 May'."""
     from datetime import datetime
+
     try:
         end = datetime.strptime(event.end_date[:10], "%Y-%m-%d")
         start = datetime.strptime(event.start_date[:10], "%Y-%m-%d") if event.start_date else None
@@ -95,5 +98,5 @@ def get_location_dir(event: EventInfo) -> str:
     Format: "{round:02d}_{circuit_name}"
     Example: "01_Bahrain", "21_Abu_Dhabi"
     """
-    location_safe = event.circuit_name.replace(' ', '_').replace('-', '_')
+    location_safe = event.circuit_name.replace(" ", "_").replace("-", "_")
     return f"{event.round_number:02d}_{location_safe}"

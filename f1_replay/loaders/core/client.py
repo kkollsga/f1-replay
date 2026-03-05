@@ -4,15 +4,17 @@ FastF1 Client - Centralized FastF1 API Communication
 All FastF1 API calls go through this module. Handles caching and error handling.
 """
 
-from typing import Optional, Dict, Any, List
-from pathlib import Path
 import logging
+from pathlib import Path
+from typing import List, Optional
+
 import fastf1
 import pandas as pd
+
 from f1_replay.log import logger
 
 # Suppress verbose FastF1 warnings (e.g., "Car number X cannot be located on track")
-logging.getLogger('fastf1').setLevel(logging.ERROR)
+logging.getLogger("fastf1").setLevel(logging.ERROR)
 
 
 class FastF1Client:
@@ -72,7 +74,11 @@ class FastF1Client:
             event = fastf1.get_event(year, round_num_or_name)
             return event
         except Exception as e:
-            identifier = f"'{round_num_or_name}'" if isinstance(round_num_or_name, str) else f"R{round_num_or_name}"
+            identifier = (
+                f"'{round_num_or_name}'"
+                if isinstance(round_num_or_name, str)
+                else f"R{round_num_or_name}"
+            )
             logger.error(f"✗ Error fetching {year} {identifier} event: {e}")
             return None
 
@@ -94,8 +100,9 @@ class FastF1Client:
             logger.error(f"✗ Error fetching {year} T{test_number:02d} testing event: {e}")
             return None
 
-    def get_testing_session(self, year: int, test_number: int,
-                           session_number: int, load_telemetry: bool = False):
+    def get_testing_session(
+        self, year: int, test_number: int, session_number: int, load_telemetry: bool = False
+    ):
         """
         Get FastF1 testing session object.
 
@@ -113,25 +120,28 @@ class FastF1Client:
 
             # Load data
             load_kwargs = {
-                'laps': True,
-                'telemetry': load_telemetry,
-                'weather': False,
-                'messages': False
+                "laps": True,
+                "telemetry": load_telemetry,
+                "weather": False,
+                "messages": False,
             }
             session.load(**load_kwargs)
 
             return session
 
         except Exception as e:
-            logger.error(f"✗ Error fetching {year} T{test_number:02d} Session {session_number}: {e}")
+            logger.error(
+                f"✗ Error fetching {year} T{test_number:02d} Session {session_number}: {e}"
+            )
             return None
 
     # =========================================================================
     # Tier 2: Weekend Data
     # =========================================================================
 
-    def get_session(self, year: int, round_num_or_name,
-                   session_type: str, load_telemetry: bool = False):
+    def get_session(
+        self, year: int, round_num_or_name, session_type: str, load_telemetry: bool = False
+    ):
         """
         Get FastF1 session object.
 
@@ -149,17 +159,21 @@ class FastF1Client:
 
             # Load data
             load_kwargs = {
-                'laps': True,
-                'telemetry': load_telemetry,
-                'weather': False,
-                'messages': False
+                "laps": True,
+                "telemetry": load_telemetry,
+                "weather": False,
+                "messages": False,
             }
             session.load(**load_kwargs)
 
             return session
 
         except Exception as e:
-            identifier = f"'{round_num_or_name}'" if isinstance(round_num_or_name, str) else f"R{round_num_or_name}"
+            identifier = (
+                f"'{round_num_or_name}'"
+                if isinstance(round_num_or_name, str)
+                else f"R{round_num_or_name}"
+            )
             logger.error(f"✗ Error fetching {year} {identifier} {session_type}: {e}")
             return None
 
@@ -167,8 +181,7 @@ class FastF1Client:
     # Tier 3: Session Telemetry & Events
     # =========================================================================
 
-    def get_session_with_all_data(self, year: int, round_num_or_name,
-                                  session_type: str):
+    def get_session_with_all_data(self, year: int, round_num_or_name, session_type: str):
         """
         Get session with all data loaded (telemetry, weather, messages).
 
@@ -186,7 +199,11 @@ class FastF1Client:
             return session
 
         except Exception as e:
-            identifier = f"'{round_num_or_name}'" if isinstance(round_num_or_name, str) else f"R{round_num_or_name}"
+            identifier = (
+                f"'{round_num_or_name}'"
+                if isinstance(round_num_or_name, str)
+                else f"R{round_num_or_name}"
+            )
             logger.error(f"✗ Error loading {year} {identifier} {session_type}: {e}")
             return None
 
@@ -207,8 +224,8 @@ class FastF1Client:
     def get_pit_stop_laps(self, session) -> tuple:
         """Get in-laps and out-laps from session."""
         try:
-            in_laps = session.laps.pick_box_laps(which='in')
-            out_laps = session.laps.pick_box_laps(which='out')
+            in_laps = session.laps.pick_box_laps(which="in")
+            out_laps = session.laps.pick_box_laps(which="out")
             return in_laps, out_laps
         except Exception as e:
             logger.warning(f"⚠ Error getting pit stop laps: {e}")
@@ -219,7 +236,7 @@ class FastF1Client:
         try:
             if session.laps is None or len(session.laps) == 0:
                 return []
-            return sorted(session.laps['Driver'].unique().tolist())
+            return sorted(session.laps["Driver"].unique().tolist())
         except Exception as e:
             logger.warning(f"⚠ Error getting drivers: {e}")
             return []

@@ -4,22 +4,24 @@ Manager - Top-level coordinator for seasons catalog and race launching.
 Provides convenient access to seasons data and methods to load races and launch the Flask viewer.
 """
 
-from typing import Union, Optional, List
-from datetime import datetime
 import webbrowser
+from datetime import datetime
+from typing import List, Optional, Union
 
+from f1_replay.config import get_cache_dir
+from f1_replay.loaders.seasons.processor import SeasonsCatalog
+from f1_replay.log import logger, setup_logging
 from f1_replay.managers.dataloader import DataLoader
 from f1_replay.managers.schedule import (
-    ScheduleList, format_date_range, build_schedule_item,
-    get_event_schedule, session_type_schedule,
+    ScheduleList,
+    build_schedule_item,
+    format_date_range,
+    get_event_schedule,
+    session_type_schedule,
 )
-from f1_replay.models import EventInfo, get_location_dir
-from f1_replay.loaders.seasons.processor import SeasonsCatalog
-from f1_replay.loaders import TelemetryBuilder
-from f1_replay.wrappers import RaceWeekend, Session, create_session
-from f1_replay.config import get_cache_dir
+from f1_replay.models import EventInfo
 from f1_replay.services import TrackFinder
-from f1_replay.log import logger, setup_logging
+from f1_replay.wrappers import RaceWeekend, Session, create_session
 
 
 class Manager:
@@ -125,14 +127,14 @@ class Manager:
 
     # Map FastF1 session names to short codes for display
     SESSION_SHORT = {
-        'Practice 1': 'FP1',
-        'Practice 2': 'FP2',
-        'Practice 3': 'FP3',
-        'Qualifying': 'Q',
-        'Race': 'R',
-        'Sprint Qualifying': 'SQ',
-        'Sprint Shootout': 'SQ',
-        'Sprint': 'S',
+        "Practice 1": "FP1",
+        "Practice 2": "FP2",
+        "Practice 3": "FP3",
+        "Qualifying": "Q",
+        "Race": "R",
+        "Sprint Qualifying": "SQ",
+        "Sprint Shootout": "SQ",
+        "Sprint": "S",
     }
 
     def season_schedule(self, year: int, force_update: bool = False) -> None:
@@ -153,7 +155,7 @@ class Manager:
                 return
 
         # Calculate max widths for alignment (with GP shortening)
-        max_name = max(len(e.name.replace('Grand Prix', 'GP')) for e in season)
+        max_name = max(len(e.name.replace("Grand Prix", "GP")) for e in season)
         max_loc = max(len(e.circuit_name) for e in season)
 
         # Header
@@ -163,17 +165,17 @@ class Manager:
         testing_count = 0
         for event in season:
             date_str = self._format_date_range(event.start_date, event.end_date)
-            name = event.name.replace('Grand Prix', 'GP')
+            name = event.name.replace("Grand Prix", "GP")
             location = event.circuit_name
             sessions = list(event.session_schedule.keys())
 
             # Convert to short codes
             short_sessions = [self.SESSION_SHORT.get(s, s) for s in sessions]
-            sessions_str = ', '.join(short_sessions)
+            sessions_str = ", ".join(short_sessions)
 
             # Round number (testing events show as T01, T02, etc.)
             round_num = event.round_number
-            is_testing = event.format == 'testing'
+            is_testing = event.format == "testing"
             if is_testing:
                 testing_count += 1
                 round_str = f"T{testing_count:02d}"
@@ -181,7 +183,9 @@ class Manager:
                 round_str = f"R{round_num:02d}"
 
             # Aligned columns
-            print(f"  {round_str}  {date_str:>11}  {name:<{max_name}}  {location:<{max_loc}}  {sessions_str}")
+            print(
+                f"  {round_str}  {date_str:>11}  {name:<{max_name}}  {location:<{max_loc}}  {sessions_str}"
+            )
 
         print()
 
@@ -200,44 +204,54 @@ class Manager:
 
         items = []
         for _, event in schedule.iterrows():
-            round_num = event.get('RoundNumber', 0)
-            event_name = event.get('EventName', '')
+            round_num = event.get("RoundNumber", 0)
+            event_name = event.get("EventName", "")
 
-            if round_num == 0 or 'Test' in event_name:
+            if round_num == 0 or "Test" in event_name:
                 continue
 
-            event_date = event.get('EventDate')
-            session1_date = event.get('Session1Date')
-            session5_date = event.get('Session5Date')
+            event_date = event.get("EventDate")
+            session1_date = event.get("Session1Date")
+            session5_date = event.get("Session5Date")
 
-            items.append({
-                'title': event_name,
-                'start': (session1_date.isoformat() if hasattr(session1_date, 'isoformat')
-                         else str(event_date)[:10] if event_date else None),
-                'end': (session5_date.isoformat() if hasattr(session5_date, 'isoformat')
-                       else str(event_date)[:10] if event_date else None),
-                'round': round_num,
-                'location': event.get('Location', ''),
-                'country': event.get('Country', '')
-            })
+            items.append(
+                {
+                    "title": event_name,
+                    "start": (
+                        session1_date.isoformat()
+                        if hasattr(session1_date, "isoformat")
+                        else str(event_date)[:10] if event_date else None
+                    ),
+                    "end": (
+                        session5_date.isoformat()
+                        if hasattr(session5_date, "isoformat")
+                        else str(event_date)[:10] if event_date else None
+                    ),
+                    "round": round_num,
+                    "location": event.get("Location", ""),
+                    "country": event.get("Country", ""),
+                }
+            )
 
         return ScheduleList(items, f"{year} Race Weekends")
 
     def race_schedule(self, year: int) -> ScheduleList:
         """Get race session schedule for a season."""
-        return session_type_schedule(year, ['Race'], 'Races')
+        return session_type_schedule(year, ["Race"], "Races")
 
     def sprint_schedule(self, year: int) -> ScheduleList:
         """Get sprint race schedule for a season."""
-        return session_type_schedule(year, ['Sprint'], 'Sprint Races')
+        return session_type_schedule(year, ["Sprint"], "Sprint Races")
 
     def qualification_schedule(self, year: int) -> ScheduleList:
         """Get qualifying session schedule for a season."""
-        return session_type_schedule(year, ['Qualifying'], 'Qualifying')
+        return session_type_schedule(year, ["Qualifying"], "Qualifying")
 
     def sprintquali_schedule(self, year: int) -> ScheduleList:
         """Get sprint qualifying (shootout) schedule for a season."""
-        return session_type_schedule(year, ['Sprint Qualifying', 'Sprint Shootout'], 'Sprint Qualifying')
+        return session_type_schedule(
+            year, ["Sprint Qualifying", "Sprint Shootout"], "Sprint Qualifying"
+        )
 
     def practice_schedule(self, year: int) -> ScheduleList:
         """Get practice and testing session schedule for a season."""
@@ -245,21 +259,23 @@ class Manager:
         if schedule is None:
             return ScheduleList([], f"{year} Practice Sessions")
 
-        practice_sessions = ['Practice 1', 'Practice 2', 'Practice 3', 'FP1', 'FP2', 'FP3']
+        practice_sessions = ["Practice 1", "Practice 2", "Practice 3", "FP1", "FP2", "FP3"]
         items = []
         for _, event in schedule.iterrows():
-            round_num = event.get('RoundNumber', 0)
-            event_name = event.get('EventName', '')
+            round_num = event.get("RoundNumber", 0)
+            event_name = event.get("EventName", "")
 
             for i in range(1, 6):
-                session_name = event.get(f'Session{i}')
-                if session_name and (session_name in practice_sessions or
-                                    'Practice' in str(session_name) or
-                                    'Test' in str(session_name) or
-                                    round_num == 0):
+                session_name = event.get(f"Session{i}")
+                if session_name and (
+                    session_name in practice_sessions
+                    or "Practice" in str(session_name)
+                    or "Test" in str(session_name)
+                    or round_num == 0
+                ):
                     item = build_schedule_item(event, i, round_num if round_num else 0)
                     if item:
-                        item['title'] = f"{event_name} - {session_name}"
+                        item["title"] = f"{event_name} - {session_name}"
                         items.append(item)
 
         return ScheduleList(items, f"{year} Practice & Testing")
@@ -329,7 +345,7 @@ class Manager:
 
         testing_count = 0
         for event in season:
-            if event.format == 'testing':
+            if event.format == "testing":
                 testing_count += 1
                 if testing_count == testing_num:
                     return event
@@ -350,9 +366,14 @@ class Manager:
         """Get currently loaded session."""
         return self._session
 
-    def load_weekend(self, year: int, round_num_or_name: Union[int, str] = None,
-                    force_update: bool = False, testing: Union[bool, int, str] = False,
-                    sessions: Optional[List[str]] = None) -> 'Manager':
+    def load_weekend(
+        self,
+        year: int,
+        round_num_or_name: Union[int, str] = None,
+        force_update: bool = False,
+        testing: Union[bool, int, str] = False,
+        sessions: Optional[List[str]] = None,
+    ) -> "Manager":
         """
         Load race weekend data (circuit geometry + metadata) into manager.
 
@@ -387,7 +408,7 @@ class Manager:
                 testing_num = testing
             elif isinstance(testing, str):
                 # Parse "T1", "T01", "T2", "T02", etc.
-                testing_num = int(testing.upper().lstrip('T').lstrip('0') or '1')
+                testing_num = int(testing.upper().lstrip("T").lstrip("0") or "1")
             else:
                 testing_num = 1
 
@@ -412,7 +433,9 @@ class Manager:
         round_num = event.round_number
         self._current_event = event  # Cache for load_session
 
-        weekend_data = self.data_loader.load_weekend(year, round_num, event, force_reprocess=force_update)
+        weekend_data = self.data_loader.load_weekend(
+            year, round_num, event, force_reprocess=force_update
+        )
         if weekend_data is None:
             self._weekend = None
             self._session = None
@@ -420,8 +443,7 @@ class Manager:
 
         # Check if track is placeholder (legacy cache file)
         has_real_track = (
-            weekend_data.circuit.track.x is not None and
-            len(weekend_data.circuit.track.x) > 0
+            weekend_data.circuit.track.x is not None and len(weekend_data.circuit.track.x) > 0
         )
 
         # Only run legacy extraction if placeholder track (not if force_update with real track)
@@ -435,9 +457,7 @@ class Manager:
             return self._load_session_internal(session_type, force)
 
         self._weekend = RaceWeekend(
-            data=weekend_data,
-            display_timezone=self.timezone,
-            session_loader=session_loader
+            data=weekend_data, display_timezone=self.timezone, session_loader=session_loader
         )
         self._session = None  # Clear session when new weekend is loaded
 
@@ -466,14 +486,15 @@ class Manager:
         """
         track_data = None
         historical = None
-        is_testing = event.format == 'testing'
+        is_testing = event.format == "testing"
 
         if is_testing:
             # Testing events: always use historical race data for track geometry
-            logger.info(f"  → Testing event - searching for historical race at {event.circuit_name}...")
+            logger.info(
+                f"  → Testing event - searching for historical race at {event.circuit_name}..."
+            )
             historical = self._track_finder.find_historical_race(
-                event.circuit_name, year,
-                circuit=event.circuit_name
+                event.circuit_name, year, circuit=event.circuit_name
             )
         else:
             # Race events: try to get results, fall back to historical
@@ -484,10 +505,11 @@ class Manager:
                 logger.info(f"  → Extracting track from {results.winner}'s telemetry...")
 
                 # Load session with telemetry for track extraction
-                raw_session = self.data_loader.get_raw_session(year, round_num, 'R')
+                raw_session = self.data_loader.get_raw_session(year, round_num, "R")
                 if raw_session:
                     # Extract track directly using TelemetryBuilder
                     from f1_replay.loaders.session.telemetry import TelemetryBuilder
+
                     track_data = TelemetryBuilder.extract_track_from_driver(
                         raw_session, results.winner
                     )
@@ -496,8 +518,7 @@ class Manager:
                 circuit_name = event.circuit_name
                 logger.info(f"  → Future race - searching historical data for {circuit_name}...")
                 historical = self._track_finder.find_historical_race(
-                    event.circuit_name, year,
-                    circuit=event.circuit_name
+                    event.circuit_name, year, circuit=event.circuit_name
                 )
 
         # Extract from historical if needed
@@ -509,25 +530,29 @@ class Manager:
             # Get results and extract track from historical race
             hist_results = self.data_loader.load_race_results(hist_year, hist_round)
             if hist_results:
-                raw_session = self.data_loader.get_raw_session(hist_year, hist_round, 'R')
+                raw_session = self.data_loader.get_raw_session(hist_year, hist_round, "R")
                 if raw_session:
                     from f1_replay.loaders.session.telemetry import TelemetryBuilder
+
                     track_data = TelemetryBuilder.extract_track_from_driver(
                         raw_session, hist_results.winner
                     )
                     # Get rotation from historical session
                     try:
                         circuit_info = raw_session.get_circuit_info()
-                        if circuit_info and hasattr(circuit_info, 'rotation'):
+                        if circuit_info and hasattr(circuit_info, "rotation"):
                             historical_rotation = float(circuit_info.rotation)
                     except (ValueError, TypeError, AttributeError):
                         pass
 
         if track_data is None and not is_testing:
-            logger.error(f"  ✗ No historical data for '{event.circuit_name}' - new circuit on calendar")
+            logger.error(
+                f"  ✗ No historical data for '{event.circuit_name}' - new circuit on calendar"
+            )
 
         if track_data:
             from f1_replay.models.event import get_location_dir
+
             location_dir = get_location_dir(event)
 
             # Update weekend with track data (DataLoader handles caching)
@@ -537,7 +562,9 @@ class Manager:
 
         return weekend_data
 
-    def _load_session_internal(self, session_type: str, force_update: bool = False) -> Optional[Session]:
+    def _load_session_internal(
+        self, session_type: str, force_update: bool = False
+    ) -> Optional[Session]:
         """
         Internal method to load a session for the current weekend.
 
@@ -561,28 +588,39 @@ class Manager:
         event_date = event.end_date if event else None
         if event_date:
             try:
-                event_dt = datetime.strptime(str(event_date)[:10], '%Y-%m-%d')
+                event_dt = datetime.strptime(str(event_date)[:10], "%Y-%m-%d")
                 if event_dt > datetime.now():
-                    logger.error(f"✗ Session not yet available - {self._weekend.name} is scheduled for {event_date[:10]}")
+                    logger.error(
+                        f"✗ Session not yet available - {self._weekend.name} is scheduled for {event_date[:10]}"
+                    )
                     return None
             except (ValueError, TypeError):
                 pass
 
         # Load session data
         result = self.data_loader.load_session(
-            year, round_num, session_type,
+            year,
+            round_num,
+            session_type,
             event=event,
             circuit_length=self._weekend.circuit_length,
             weekend_track=self._weekend.circuit.track,
-            force_reprocess=force_update
+            force_reprocess=force_update,
         )
         if result is None:
             return None
 
-        return create_session(data=result.data, weekend=self._weekend, raw_session=result.raw_session)
+        return create_session(
+            data=result.data, weekend=self._weekend, raw_session=result.raw_session
+        )
 
-    def load_session(self, year: Optional[int] = None, round_num_or_name: Optional[Union[int, str]] = None,
-                    session_type: str = "R", force_update: bool = False) -> 'Manager':
+    def load_session(
+        self,
+        year: Optional[int] = None,
+        round_num_or_name: Optional[Union[int, str]] = None,
+        session_type: str = "R",
+        force_update: bool = False,
+    ) -> "Manager":
         """
         Load session data (telemetry, events, results) into manager.
 
@@ -618,9 +656,9 @@ class Manager:
         # Load weekend if not already loaded for this race
         # (don't reload if already loaded, even with force_update - session force_update is for session only)
         weekend_matches = (
-            self._weekend is not None and
-            self._weekend.year == year and
-            self._weekend.round_number == round_num
+            self._weekend is not None
+            and self._weekend.year == year
+            and self._weekend.round_number == round_num
         )
         if not weekend_matches:
             self.load_weekend(year, round_num, force_update=force_update)
@@ -629,12 +667,18 @@ class Manager:
             return self
 
         # Check if session has occurred (future races have no data)
-        event_date = event.end_date if event else self._current_event.end_date if self._current_event else None
+        event_date = (
+            event.end_date
+            if event
+            else self._current_event.end_date if self._current_event else None
+        )
         if event_date:
             try:
-                event_dt = datetime.strptime(str(event_date)[:10], '%Y-%m-%d')
+                event_dt = datetime.strptime(str(event_date)[:10], "%Y-%m-%d")
                 if event_dt > datetime.now():
-                    logger.error(f"✗ Session not yet available - {self._weekend.name} is scheduled for {event_date[:10]}")
+                    logger.error(
+                        f"✗ Session not yet available - {self._weekend.name} is scheduled for {event_date[:10]}"
+                    )
                     self._session = None
                     return self
             except (ValueError, TypeError):
@@ -642,17 +686,21 @@ class Manager:
 
         # Load full session data (pass weekend track for track_distance calculation)
         result = self.data_loader.load_session(
-            year, round_num, session_type,
+            year,
+            round_num,
+            session_type,
             event=event or self._current_event,
             circuit_length=self._weekend.circuit_length,
             weekend_track=self._weekend.circuit.track,
-            force_reprocess=force_update
+            force_reprocess=force_update,
         )
         if result is None:
             self._session = None
             return self
 
-        session = create_session(data=result.data, weekend=self._weekend, raw_session=result.raw_session)
+        session = create_session(
+            data=result.data, weekend=self._weekend, raw_session=result.raw_session
+        )
         self._weekend.set_session(session_type, session)
         self._session = session  # Keep shortcut for backward compatibility
 
@@ -660,12 +708,18 @@ class Manager:
         logger.debug(f"TIER 3 SESSION LOADED: {year} R{round_num} {session_type}")
         logger.debug(f"  drivers: {session.drivers}")
         logger.debug(f"  telemetry: {len(session.telemetry)} drivers")
-        logger.info(f"✓ Session loaded: {session.event_name} {session_type} ({len(session.drivers)} drivers)")
+        logger.info(
+            f"✓ Session loaded: {session.event_name} {session_type} ({len(session.drivers)} drivers)"
+        )
 
         return self
 
-    def load_race(self, year: Optional[int] = None, round_num_or_name: Optional[Union[int, str]] = None,
-                 force_update: bool = False) -> 'Manager':
+    def load_race(
+        self,
+        year: Optional[int] = None,
+        round_num_or_name: Optional[Union[int, str]] = None,
+        force_update: bool = False,
+    ) -> "Manager":
         """
         Load race session (alias for load_session with session_type='R').
 
@@ -680,7 +734,7 @@ class Manager:
         Returns:
             self (for method chaining)
         """
-        return self.load_session(year, round_num_or_name, 'R', force_update=force_update)
+        return self.load_session(year, round_num_or_name, "R", force_update=force_update)
 
     def process_season(self, year: int, force_update: bool = False) -> None:
         """
@@ -740,9 +794,15 @@ class Manager:
     # Flask App Launching
     # =========================================================================
 
-    def race(self, year: Optional[int] = None, round_num_or_name: Optional[Union[int, str]] = None,
-            host: str = '0.0.0.0', port: int = 5001, debug: bool = True,
-            force_update: bool = False) -> None:
+    def race(
+        self,
+        year: Optional[int] = None,
+        round_num_or_name: Optional[Union[int, str]] = None,
+        host: str = "0.0.0.0",
+        port: int = 5001,
+        debug: bool = True,
+        force_update: bool = False,
+    ) -> None:
         """
         Load race and launch interactive Flask viewer.
 
@@ -766,16 +826,17 @@ class Manager:
         # Use already loaded race session if no year/round specified
         if year is None and round_num_or_name is None:
             # Check if race session is already loaded
-            if self._weekend and self._weekend.is_session_loaded('R'):
+            if self._weekend and self._weekend.is_session_loaded("R"):
                 session = self._weekend.race
                 logger.info(f"✓ Using loaded race: {session.event_name} ({session.year})")
                 logger.info(f"Starting Flask app on http://{host}:{port}...")
 
                 from f1_replay.api import create_app
+
                 app = create_app(self.data_loader, session, force_update=force_update)
 
                 try:
-                    webbrowser.open(f'http://localhost:{port}')
+                    webbrowser.open(f"http://localhost:{port}")
                 except Exception:
                     pass
 
@@ -799,20 +860,27 @@ class Manager:
 
         # Create Flask app with this session and force_update flag
         from f1_replay.api import create_app
+
         app = create_app(self.data_loader, self._session, force_update=force_update)
 
         # Open browser
         try:
-            webbrowser.open(f'http://localhost:{port}')
+            webbrowser.open(f"http://localhost:{port}")
         except Exception:
             pass  # Browser open failed, user can open manually
 
         # Run Flask (use_reloader=False to work in Jupyter)
         app.run(host=host, port=port, debug=debug, use_reloader=False)
 
-    def view(self, year: int, round_num_or_name: Union[int, str],
-            host: str = '0.0.0.0', port: int = 5001, debug: bool = True,
-            force_update: bool = False) -> None:
+    def view(
+        self,
+        year: int,
+        round_num_or_name: Union[int, str],
+        host: str = "0.0.0.0",
+        port: int = 5001,
+        debug: bool = True,
+        force_update: bool = False,
+    ) -> None:
         """
         Alias for race() - for future multi-session viewer support.
 
@@ -824,7 +892,9 @@ class Manager:
             debug: Enable Flask debug mode (default: True)
             force_update: Force rebuild all data from FastF1 (default: False)
         """
-        self.race(year, round_num_or_name, host=host, port=port, debug=debug, force_update=force_update)
+        self.race(
+            year, round_num_or_name, host=host, port=port, debug=debug, force_update=force_update
+        )
 
     def __repr__(self) -> str:
         """String representation."""

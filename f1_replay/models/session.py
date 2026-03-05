@@ -5,7 +5,8 @@ TIER 3: SessionData with telemetry, events, and results.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional
+
 import polars as pl
 
 from f1_replay.models.base import F1DataMixin
@@ -85,6 +86,7 @@ class T0Info(F1DataMixin):
         # At session_time=0: race_time = -3335 (55min before lights out)
         # At session_time=3335: race_time = 0 (lights out!)
     """
+
     # Timing zero (t0_date) - when session_time=0 in FastF1's SessionTime
     utc: str  # ISO format UTC timestamp
 
@@ -103,6 +105,7 @@ class T0Info(F1DataMixin):
 @dataclass(frozen=True)
 class SessionMetadata(F1DataMixin):
     """Session-specific metadata."""
+
     session_type: str  # "R", "Q", "FP1", "FP2", "FP3", "S"
     year: int
     round_number: int
@@ -128,6 +131,7 @@ class TrackStatusEvent(F1DataMixin):
     Represents both global track states (SC, VSC, Red) and specific flags (Yellow sector, Blue for driver).
     Can represent either a discrete event (end_time=None) or an interval (end_time set).
     """
+
     session_time: float  # Seconds since session start (t0) - interval start time
     status: str  # "AllClear", "Yellow", "SafetyCar", "VSC", "VSCEnding", "Red"
     message: str = ""
@@ -140,6 +144,7 @@ class TrackStatusEvent(F1DataMixin):
 @dataclass(frozen=True)
 class RaceControlMessage(F1DataMixin):
     """Race control message."""
+
     message: str
     time: float = 0.0  # Original time value from FastF1
     session_time: float = 0.0  # Normalized: seconds since session start (t0)
@@ -148,6 +153,7 @@ class RaceControlMessage(F1DataMixin):
 @dataclass(frozen=True)
 class WeatherSample(F1DataMixin):
     """Weather sample at a point in time."""
+
     temperature: float  # °C
     humidity: float  # 0-100
     wind_speed: float  # m/s
@@ -161,12 +167,17 @@ class WeatherSample(F1DataMixin):
 @dataclass(frozen=True)
 class EventsData(F1DataMixin):
     """All events during session (stored as Polars DataFrames for efficiency)."""
+
     # Unified track status: merges session.track_status + race_control_messages[Category='Flag']
     # Columns: session_time, status, message, flag_type, scope, sector, driver_num, lap, raw_time, end_time
     # Includes synthetic events (SessionStart→WarmUp, LightsOut) and rain events (consolidated)
     # Can access .report property for consolidation details
-    track_status: TrackStatusWithReport = field(default_factory=lambda: TrackStatusWithReport(pl.DataFrame()))
-    race_control: pl.DataFrame = field(default_factory=lambda: pl.DataFrame())  # Columns: message, time, session_time
+    track_status: TrackStatusWithReport = field(
+        default_factory=lambda: TrackStatusWithReport(pl.DataFrame())
+    )
+    race_control: pl.DataFrame = field(
+        default_factory=lambda: pl.DataFrame()
+    )  # Columns: message, time, session_time
     # Status subtitles: messages with timestamps like "RACE WILL START AT 12:47"
     # Columns: session_time (announcement), end_time (target time), message
     status_messages: pl.DataFrame = field(default_factory=lambda: pl.DataFrame())
@@ -175,6 +186,7 @@ class EventsData(F1DataMixin):
 @dataclass(frozen=True)
 class FastestLapEvent(F1DataMixin):
     """Fastest lap record."""
+
     lap: int
     driver: str
     time: float  # seconds (lap duration)
@@ -185,6 +197,7 @@ class FastestLapEvent(F1DataMixin):
 @dataclass(frozen=True)
 class PositionEntry(F1DataMixin):
     """Driver position in standings."""
+
     position: int
     driver: str
     gap: float  # seconds to leader
@@ -193,6 +206,7 @@ class PositionEntry(F1DataMixin):
 @dataclass(frozen=True)
 class PositionSnapshot(F1DataMixin):
     """Standings at a moment in time."""
+
     time: float  # Session seconds
     lap: Optional[int] = None
     standings: List[PositionEntry] = field(default_factory=list)
@@ -201,6 +215,7 @@ class PositionSnapshot(F1DataMixin):
 @dataclass(frozen=True)
 class ResultsData(F1DataMixin):
     """Race results and standings."""
+
     fastest_laps: List[FastestLapEvent] = field(default_factory=list)
     position_history: List[PositionSnapshot] = field(default_factory=list)
 
@@ -208,8 +223,11 @@ class ResultsData(F1DataMixin):
 @dataclass(frozen=True)
 class SessionData(F1DataMixin):
     """Complete immutable data for one session."""
+
     metadata: SessionMetadata
-    telemetry: Dict[str, pl.DataFrame] = field(default_factory=dict)  # driver_code -> telemetry (includes position column)
+    telemetry: Dict[str, pl.DataFrame] = field(
+        default_factory=dict
+    )  # driver_code -> telemetry (includes position column)
     events: EventsData = field(default_factory=EventsData)
     results: ResultsData = field(default_factory=ResultsData)
 

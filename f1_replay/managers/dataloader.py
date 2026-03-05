@@ -10,17 +10,22 @@ import pickle
 from pathlib import Path
 from typing import Optional
 
-from f1_replay.log import logger
-
-from f1_replay.models import (
-    F1Weekend, LoadResult, CircuitData, TrackGeometry, PitLane, RaceResults, DirectionArrow, EventInfo
-)
-from f1_replay.loaders.seasons.processor import SeasonsCatalog
 from f1_replay.loaders.core.client import FastF1Client
 from f1_replay.loaders.core.mapping import to_fastf1_code, to_user_friendly
-from f1_replay.loaders.seasons.processor import SeasonsProcessor
-from f1_replay.loaders.weekend.processor import WeekendProcessor, get_manual_rotation
+from f1_replay.loaders.seasons.processor import SeasonsCatalog, SeasonsProcessor
 from f1_replay.loaders.session.processor import SessionProcessor
+from f1_replay.loaders.weekend.processor import WeekendProcessor, get_manual_rotation
+from f1_replay.log import logger
+from f1_replay.models import (
+    CircuitData,
+    DirectionArrow,
+    EventInfo,
+    F1Weekend,
+    LoadResult,
+    PitLane,
+    RaceResults,
+    TrackGeometry,
+)
 
 
 class DataLoader:
@@ -58,7 +63,9 @@ class DataLoader:
     # TIER 1: Seasons Catalog
     # =========================================================================
 
-    def load_seasons(self, years: list = None, force_update: bool = False) -> Optional[SeasonsCatalog]:
+    def load_seasons(
+        self, years: list = None, force_update: bool = False
+    ) -> Optional[SeasonsCatalog]:
         """
         Load F1 seasons catalog (TIER 1).
 
@@ -78,6 +85,7 @@ class DataLoader:
             return self._seasons_cache
 
         from datetime import datetime
+
         current_year = datetime.now().year
 
         if years is None:
@@ -89,7 +97,7 @@ class DataLoader:
         # Try disk cache
         if seasons_path.exists() and not force_update:
             try:
-                with open(seasons_path, 'rb') as f:
+                with open(seasons_path, "rb") as f:
                     seasons = pickle.load(f)
 
                 # Check if current year is missing from cache
@@ -99,7 +107,7 @@ class DataLoader:
                     if new_rounds:
                         seasons[current_year] = new_rounds
                         # Update disk cache
-                        with open(seasons_path, 'wb') as f:
+                        with open(seasons_path, "wb") as f:
                             pickle.dump(seasons, f, protocol=pickle.HIGHEST_PROTOCOL)
                         logger.info(f"✓ Added {current_year} to cache ({len(new_rounds)} rounds)")
 
@@ -118,7 +126,7 @@ class DataLoader:
 
         # Cache to disk
         try:
-            with open(seasons_path, 'wb') as f:
+            with open(seasons_path, "wb") as f:
                 pickle.dump(seasons, f, protocol=pickle.HIGHEST_PROTOCOL)
             logger.info(f"✓ Cached seasons to {seasons_path}")
         except Exception as e:
@@ -127,13 +135,18 @@ class DataLoader:
         self._seasons_cache = seasons  # Store in memory
         return seasons
 
-
     # =========================================================================
     # TIER 2: Race Weekend
     # =========================================================================
 
-    def load_weekend(self, year: int, round_num: int, event: EventInfo,
-                    force_reprocess: bool = False, force_update: bool = False) -> Optional[F1Weekend]:
+    def load_weekend(
+        self,
+        year: int,
+        round_num: int,
+        event: EventInfo,
+        force_reprocess: bool = False,
+        force_update: bool = False,
+    ) -> Optional[F1Weekend]:
         """
         Load race weekend data (TIER 2): circuit + metadata.
 
@@ -162,7 +175,7 @@ class DataLoader:
         # Try cache
         if weekend_path.exists() and not force_reprocess:
             try:
-                with open(weekend_path, 'rb') as f:
+                with open(weekend_path, "rb") as f:
                     weekend = pickle.load(f)
                 logger.info(f"✓ Loaded weekend from cache: {event.name}")
                 return weekend
@@ -173,10 +186,10 @@ class DataLoader:
         logger.info("📡 Building weekend data from FastF1...")
 
         # For testing events (round=0), use dedicated testing API
-        is_testing = event.format == 'testing'
+        is_testing = event.format == "testing"
         if is_testing:
             # Extract test number from event (stored by Manager)
-            test_number = getattr(event, 'test_number', 1)
+            test_number = getattr(event, "test_number", 1)
             weekend = self.weekend_processor.build_weekend(year, round_num, test_number=test_number)
         else:
             weekend = self.weekend_processor.build_weekend(year, round_num)
@@ -186,7 +199,7 @@ class DataLoader:
 
         # Cache
         try:
-            with open(weekend_path, 'wb') as f:
+            with open(weekend_path, "wb") as f:
                 pickle.dump(weekend, f, protocol=pickle.HIGHEST_PROTOCOL)
             logger.info(f"✓ Cached weekend to {weekend_path}")
         except Exception as e:
@@ -198,9 +211,17 @@ class DataLoader:
     # TIER 3: Session Data
     # =========================================================================
 
-    def load_session(self, year: int, round_num: int, session_type: str,
-                    event: EventInfo, circuit_length: float, weekend_track=None,
-                    force_reprocess: bool = False, force_update: bool = False) -> Optional[LoadResult]:
+    def load_session(
+        self,
+        year: int,
+        round_num: int,
+        session_type: str,
+        event: EventInfo,
+        circuit_length: float,
+        weekend_track=None,
+        force_reprocess: bool = False,
+        force_update: bool = False,
+    ) -> Optional[LoadResult]:
         """
         Load session data (TIER 3): telemetry, events, results.
 
@@ -243,7 +264,7 @@ class DataLoader:
         # Try cache (raw_session is None when loaded from cache)
         if session_path.exists() and not force_reprocess:
             try:
-                with open(session_path, 'rb') as f:
+                with open(session_path, "rb") as f:
                     session = pickle.load(f)
                 logger.info(f"✓ Loaded session from cache: {session_type}")
                 return LoadResult(data=session, raw_session=None)
@@ -255,9 +276,7 @@ class DataLoader:
 
         # Create processor with circuit length and weekend track
         processor = SessionProcessor(
-            self.fastf1_client,
-            circuit_length=circuit_length,
-            weekend_track=weekend_track
+            self.fastf1_client, circuit_length=circuit_length, weekend_track=weekend_track
         )
 
         result = processor.build_session(year, round_num, fastf1_code, event.name)
@@ -270,7 +289,7 @@ class DataLoader:
 
         # Cache (only SessionData, not raw_session)
         try:
-            with open(session_path, 'wb') as f:
+            with open(session_path, "wb") as f:
                 pickle.dump(session, f, protocol=pickle.HIGHEST_PROTOCOL)
             logger.info(f"✓ Cached session to {session_path}")
         except Exception as e:
@@ -289,7 +308,7 @@ class DataLoader:
         Returns:
             RaceResults with winner and raw_session, or None
         """
-        f1_session = self.fastf1_client.get_session(year, round_num, 'R', load_telemetry=False)
+        f1_session = self.fastf1_client.get_session(year, round_num, "R", load_telemetry=False)
         if f1_session is None:
             return None
 
@@ -299,17 +318,17 @@ class DataLoader:
                 return None
 
             # Get winner (P1)
-            winner_row = results[results['Position'] == 1]
+            winner_row = results[results["Position"] == 1]
             if len(winner_row) == 0:
                 return None
 
-            winner = winner_row['Abbreviation'].iloc[0]
+            winner = winner_row["Abbreviation"].iloc[0]
             return RaceResults(winner=winner, raw_session=f1_session)
         except Exception as e:
             logger.warning(f"  ⚠ Could not load race results: {e}")
             return None
 
-    def get_raw_session(self, year: int, round_num: int, session_type: str = 'R'):
+    def get_raw_session(self, year: int, round_num: int, session_type: str = "R"):
         """
         Get raw FastF1 session with telemetry loaded.
 
@@ -321,8 +340,9 @@ class DataLoader:
     # Helpers
     # =========================================================================
 
-    def update_weekend_track(self, weekend: F1Weekend, track_data, location_dir: str,
-                             rotation: Optional[float] = None) -> F1Weekend:
+    def update_weekend_track(
+        self, weekend: F1Weekend, track_data, location_dir: str, rotation: Optional[float] = None
+    ) -> F1Weekend:
         """
         Update weekend's CircuitData with extracted track geometry.
 
@@ -338,22 +358,23 @@ class DataLoader:
         Returns:
             Updated F1Weekend with track geometry
         """
-        from f1_replay.models import MarshalSector
         import numpy as np
+
+        from f1_replay.models import MarshalSector
 
         # Convert distances from decimeters to meters
         circuit_length_meters = track_data.lap_distance / 10.0
-        distance_meters = track_data.track_distance / 10.0 if track_data.track_distance is not None else None
+        distance_meters = (
+            track_data.track_distance / 10.0 if track_data.track_distance is not None else None
+        )
 
         # Convert marshal sector tuples to MarshalSector objects
         marshal_sectors = []
         if track_data.marshal_sectors:
             for sector_num, from_dist, to_dist in track_data.marshal_sectors:
-                marshal_sectors.append(MarshalSector(
-                    number=sector_num,
-                    start_distance=from_dist,
-                    end_distance=to_dist
-                ))
+                marshal_sectors.append(
+                    MarshalSector(number=sector_num, start_distance=from_dist, end_distance=to_dist)
+                )
 
         # Build TrackGeometry from track_data (with meters)
         track = TrackGeometry(
@@ -365,7 +386,7 @@ class DataLoader:
             speed=track_data.speed,
             throttle=track_data.throttle,
             brake=track_data.brake,
-            z=track_data.track_z
+            z=track_data.track_z,
         )
 
         # Build pit lane with entry/exit distances
@@ -377,7 +398,7 @@ class DataLoader:
                 distance=track_data.pit_distance,
                 length=track_data.pit_length,
                 entry_track_dist=track_data.pit_entry_distance or 0.0,
-                exit_track_dist=track_data.pit_exit_distance or 0.0
+                exit_track_dist=track_data.pit_exit_distance or 0.0,
             )
 
         # Calculate direction arrow at start/finish (opposite side of pitlane)
@@ -386,7 +407,7 @@ class DataLoader:
             # Track direction at start/finish (from point 0 to point 1)
             dx = track_data.track_x[1] - track_data.track_x[0]
             dy = track_data.track_y[1] - track_data.track_y[0]
-            length = np.sqrt(dx*dx + dy*dy)
+            length = np.sqrt(dx * dx + dy * dy)
             if length > 0:
                 # Unit vector in racing direction
                 dir_x, dir_y = dx / length, dy / length
@@ -402,16 +423,22 @@ class DataLoader:
 
                 # Check distance to pit lane to pick opposite side
                 # Use nearest pit point to start/finish (not center, which can be misleading)
-                if pit_lane is not None and track_data.pit_x is not None and len(track_data.pit_x) > 0:
+                if (
+                    pit_lane is not None
+                    and track_data.pit_x is not None
+                    and len(track_data.pit_x) > 0
+                ):
                     # Find pit point nearest to start/finish line
                     start_x, start_y = track_data.track_x[0], track_data.track_y[0]
-                    pit_dists = (track_data.pit_x - start_x)**2 + (track_data.pit_y - start_y)**2
+                    pit_dists = (track_data.pit_x - start_x) ** 2 + (
+                        track_data.pit_y - start_y
+                    ) ** 2
                     nearest_idx = np.argmin(pit_dists)
                     pit_near_x = track_data.pit_x[nearest_idx]
                     pit_near_y = track_data.pit_y[nearest_idx]
 
-                    dist_left = (left_x - pit_near_x)**2 + (left_y - pit_near_y)**2
-                    dist_right = (right_x - pit_near_x)**2 + (right_y - pit_near_y)**2
+                    dist_left = (left_x - pit_near_x) ** 2 + (left_y - pit_near_y) ** 2
+                    dist_right = (right_x - pit_near_x) ** 2 + (right_y - pit_near_y) ** 2
                     # Pick side farther from pit (opposite side)
                     if dist_left > dist_right:
                         arrow_x, arrow_y = left_x, left_y
@@ -422,8 +449,7 @@ class DataLoader:
                     arrow_x, arrow_y = left_x, left_y
 
                 direction_arrow = DirectionArrow(
-                    x=float(arrow_x), y=float(arrow_y),
-                    dx=float(dir_x), dy=float(dir_y)
+                    x=float(arrow_x), y=float(arrow_y), dx=float(dir_x), dy=float(dir_y)
                 )
 
         # Create updated CircuitData
@@ -443,23 +469,22 @@ class DataLoader:
             rotation=final_rotation,
             name=weekend.circuit.name,
             direction_arrow=direction_arrow,
-            metadata=weekend.circuit.metadata
+            metadata=weekend.circuit.metadata,
         )
 
         # Create updated weekend
-        updated_weekend = F1Weekend(
-            event=weekend.event,
-            circuit=new_circuit
-        )
+        updated_weekend = F1Weekend(event=weekend.event, circuit=new_circuit)
 
         # Re-cache weekend with track data
         weekend_path = self.cache_dir / str(weekend.year) / location_dir / "Weekend.pkl"
         try:
-            with open(weekend_path, 'wb') as f:
+            with open(weekend_path, "wb") as f:
                 pickle.dump(updated_weekend, f, protocol=pickle.HIGHEST_PROTOCOL)
             sectors_info = f", {len(marshal_sectors)} sectors" if marshal_sectors else ""
             pit_info = f", pit={pit_lane.length:.0f}m" if pit_lane else ""
-            logger.info(f"  ✓ Updated weekend with track geometry ({circuit_length_meters:.0f}m{sectors_info}{pit_info})")
+            logger.info(
+                f"  ✓ Updated weekend with track geometry ({circuit_length_meters:.0f}m{sectors_info}{pit_info})"
+            )
         except Exception as e:
             logger.warning(f"  ⚠ Could not update weekend cache: {e}")
 
@@ -478,17 +503,16 @@ class DataLoader:
                 return event
         return None
 
-
     def get_cache_info(self) -> dict:
         """Get information about cached data."""
         pkl_files = list(self.cache_dir.rglob("*.pkl"))
         seasons_pkl = self.cache_dir / "seasons.pkl"
 
         return {
-            'cache_dir': str(self.cache_dir),
-            'total_pkl_files': len(pkl_files),
-            'seasons_cached': seasons_pkl.exists(),
-            'cached_files': [str(f.relative_to(self.cache_dir)) for f in pkl_files]
+            "cache_dir": str(self.cache_dir),
+            "total_pkl_files": len(pkl_files),
+            "seasons_cached": seasons_pkl.exists(),
+            "cached_files": [str(f.relative_to(self.cache_dir)) for f in pkl_files],
         }
 
     def clear_cache(self, year: Optional[int] = None, round_num: Optional[int] = None):
@@ -502,6 +526,7 @@ class DataLoader:
         if year is None:
             # Clear everything
             import shutil
+
             shutil.rmtree(self.cache_dir)
             self.cache_dir.mkdir(parents=True, exist_ok=True)
             logger.info(f"✓ Cleared all cache: {self.cache_dir}")
@@ -510,6 +535,7 @@ class DataLoader:
             year_dir = self.cache_dir / str(year)
             if year_dir.exists():
                 import shutil
+
                 shutil.rmtree(year_dir)
                 logger.info(f"✓ Cleared cache for {year}")
         else:
@@ -520,5 +546,6 @@ class DataLoader:
                 round_dir = self.cache_dir / str(year) / location_dir
                 if round_dir.exists():
                     import shutil
+
                     shutil.rmtree(round_dir)
                     logger.info(f"✓ Cleared cache for {year} R{round_num}")

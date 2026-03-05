@@ -8,12 +8,14 @@ parameters for client-side rendering.
 
 from dataclasses import dataclass
 from typing import Optional, Tuple
+
 import numpy as np
 
 
 @dataclass
 class TransformParams:
     """Parameters for coordinate transformation (can be sent to client)."""
+
     rotation_deg: float  # Rotation angle in degrees
     center_x: float  # Center point for rotation
     center_y: float  # Center point for rotation
@@ -78,12 +80,7 @@ class TrackTransformer:
         self._rotated_pit_y: Optional[np.ndarray] = None
 
     def _rotate_points(
-        self,
-        x: np.ndarray,
-        y: np.ndarray,
-        angle_deg: float,
-        cx: float,
-        cy: float
+        self, x: np.ndarray, y: np.ndarray, angle_deg: float, cx: float, cy: float
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Rotate points around center."""
         if angle_deg == 0:
@@ -108,9 +105,7 @@ class TrackTransformer:
         """
         if self._rotated_x is None:
             self._rotated_x, self._rotated_y = self._rotate_points(
-                self.raw_x, self.raw_y,
-                self.rotation_deg,
-                self.center_x, self.center_y
+                self.raw_x, self.raw_y, self.rotation_deg, self.center_x, self.center_y
             )
         return self._rotated_x, self._rotated_y
 
@@ -121,17 +116,11 @@ class TrackTransformer:
 
         if self._rotated_pit_x is None:
             self._rotated_pit_x, self._rotated_pit_y = self._rotate_points(
-                self.pit_x, self.pit_y,
-                self.rotation_deg,
-                self.center_x, self.center_y
+                self.pit_x, self.pit_y, self.rotation_deg, self.center_x, self.center_y
             )
         return self._rotated_pit_x, self._rotated_pit_y
 
-    def rotate_points(
-        self,
-        x: np.ndarray,
-        y: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    def rotate_points(self, x: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
         Rotate arbitrary points using same transformation.
 
@@ -145,9 +134,7 @@ class TrackTransformer:
             Tuple of rotated (x, y) arrays
         """
         return self._rotate_points(
-            np.asarray(x), np.asarray(y),
-            self.rotation_deg,
-            self.center_x, self.center_y
+            np.asarray(x), np.asarray(y), self.rotation_deg, self.center_x, self.center_y
         )
 
     def get_normalized(
@@ -155,7 +142,7 @@ class TrackTransformer:
         width: float = 1.0,
         height: float = 1.0,
         padding: float = 0.1,
-        preserve_aspect: bool = True
+        preserve_aspect: bool = True,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Get coordinates scaled and centered to fit within bounds.
@@ -212,10 +199,7 @@ class TrackTransformer:
         return float(rx.min()), float(ry.min()), float(rx.max()), float(ry.max())
 
     def get_transform_params(
-        self,
-        width: float = 800,
-        height: float = 600,
-        padding: float = 0.1
+        self, width: float = 800, height: float = 600, padding: float = 0.1
     ) -> TransformParams:
         """
         Get transformation parameters for client-side rendering.
@@ -258,7 +242,7 @@ class TrackTransformer:
             scale=scale,
             offset_x=offset_x,
             offset_y=offset_y,
-            bounds=(min_x, min_y, max_x, max_y)
+            bounds=(min_x, min_y, max_x, max_y),
         )
 
     def to_dict(self, width: float = 800, height: float = 600) -> dict:
@@ -274,16 +258,16 @@ class TrackTransformer:
         """
         params = self.get_transform_params(width, height)
         return {
-            'rotation_deg': params.rotation_deg,
-            'center_x': params.center_x,
-            'center_y': params.center_y,
-            'scale': params.scale,
-            'offset_x': params.offset_x,
-            'offset_y': params.offset_y,
-            'bounds': {
-                'min_x': params.bounds[0],
-                'min_y': params.bounds[1],
-                'max_x': params.bounds[2],
-                'max_y': params.bounds[3]
-            }
+            "rotation_deg": params.rotation_deg,
+            "center_x": params.center_x,
+            "center_y": params.center_y,
+            "scale": params.scale,
+            "offset_x": params.offset_x,
+            "offset_y": params.offset_y,
+            "bounds": {
+                "min_x": params.bounds[0],
+                "min_y": params.bounds[1],
+                "max_x": params.bounds[2],
+                "max_y": params.bounds[3],
+            },
         }

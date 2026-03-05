@@ -5,16 +5,15 @@ Covers position ranking, interval calculation, order-at-time, and order-at-lap
 with real-world-inspired scenarios (pit stops, lapped drivers, DNFs, etc.).
 """
 
-import pytest
 import polars as pl
-import numpy as np
+import pytest
 
 from f1_replay.loaders.session.order import OrderBuilder
-
 
 # ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
+
 
 def make_driver_df(
     session_times,
@@ -43,6 +42,7 @@ def make_driver_df(
 # =========================================================================
 # TestAddPositions
 # =========================================================================
+
 
 class TestAddPositions:
 
@@ -268,6 +268,7 @@ class TestAddPositions:
 # TestAddIntervals
 # =========================================================================
 
+
 class TestAddIntervals:
 
     @staticmethod
@@ -402,6 +403,7 @@ class TestAddIntervals:
 # TestGetOrderAtTime
 # =========================================================================
 
+
 class TestGetOrderAtTime:
 
     def test_basic_order(self):
@@ -466,6 +468,7 @@ class TestGetOrderAtTime:
 # =========================================================================
 # TestGetOrderAtLap
 # =========================================================================
+
 
 class TestGetOrderAtLap:
 

@@ -35,12 +35,18 @@ def _make_circular_telemetry(n_laps=3, points_per_lap=200, radius=5000.0, pit_la
         pit_end = pit_start + 20
         pit_windows.append((float(session_times[pit_start]), float(session_times[pit_end])))
 
-    tel = pl.DataFrame({
-        "session_time": session_times,
-        "x": x, "y": y, "z": z,
-        "speed": speed, "throttle": throttle, "brake": brake,
-        "lap_number": lap_numbers,
-    })
+    tel = pl.DataFrame(
+        {
+            "session_time": session_times,
+            "x": x,
+            "y": y,
+            "z": z,
+            "speed": speed,
+            "throttle": throttle,
+            "brake": brake,
+            "lap_number": lap_numbers,
+        }
+    )
 
     status_data = {
         "finish_time": float(session_times[-1]),
@@ -81,7 +87,7 @@ class TestExtractTrackAndPit:
         assert track_data is not None
         start_x, start_y = track_data.track_x[0], track_data.track_y[0]
         end_x, end_y = track_data.track_x[-1], track_data.track_y[-1]
-        gap = np.sqrt((end_x - start_x)**2 + (end_y - start_y)**2)
+        gap = np.sqrt((end_x - start_x) ** 2 + (end_y - start_y) ** 2)
         # Gap should be less than a few percent of track length
         assert gap < track_data.lap_distance * 0.1
 
@@ -99,9 +105,7 @@ class TestExtractTrackAndPit:
 
     def test_excludes_pit_lap(self):
         """Track should be extracted from clean lap, not pit lap."""
-        telemetry, status_data = _make_circular_telemetry(
-            n_laps=4, points_per_lap=200, pit_lap=2
-        )
+        telemetry, status_data = _make_circular_telemetry(n_laps=4, points_per_lap=200, pit_lap=2)
         track_data, _ = extract_track_and_pit(telemetry, "DRV", status_data)
 
         assert track_data is not None
@@ -124,13 +128,15 @@ class TestExtractTrackAndPit:
 
     def test_no_racing_laps_returns_none(self):
         """If all lap_numbers are 0, no track can be extracted."""
-        tel = pl.DataFrame({
-            "session_time": np.arange(50, dtype=np.float64),
-            "x": np.random.randn(50).astype(np.float32),
-            "y": np.random.randn(50).astype(np.float32),
-            "z": np.zeros(50, dtype=np.float32),
-            "lap_number": np.zeros(50, dtype=np.int32),
-        })
+        tel = pl.DataFrame(
+            {
+                "session_time": np.arange(50, dtype=np.float64),
+                "x": np.random.randn(50).astype(np.float32),
+                "y": np.random.randn(50).astype(np.float32),
+                "z": np.zeros(50, dtype=np.float32),
+                "lap_number": np.zeros(50, dtype=np.int32),
+            }
+        )
         track_data, _ = extract_track_and_pit({"DRV": tel}, "DRV")
         assert track_data is None
 
@@ -153,9 +159,10 @@ class TestExtractTrackAndPit:
         assert track_data is not None
         if track_data.track_z is not None and len(track_data.track_z) > 20:
             # Last point should be close to first point (due to smooth_wrap blending)
-            assert abs(track_data.track_z[-1] - track_data.track_z[0]) < abs(
-                track_data.track_z[-11] - track_data.track_z[0]
-            ) + 1  # tolerance
+            assert (
+                abs(track_data.track_z[-1] - track_data.track_z[0])
+                < abs(track_data.track_z[-11] - track_data.track_z[0]) + 1
+            )  # tolerance
 
     def test_warmup_detection(self):
         """Session timing should detect warmup start from static period."""
@@ -174,7 +181,9 @@ class TestExtractTrackAndPit:
         warmup_y = (5000.0 * np.sin(warmup_t)).astype(np.float32)
 
         # Racing laps
-        t = np.linspace(0.25 * np.pi, 0.25 * np.pi + n_laps * 2 * np.pi, n_laps * points_per_lap, endpoint=False)
+        t = np.linspace(
+            0.25 * np.pi, 0.25 * np.pi + n_laps * 2 * np.pi, n_laps * points_per_lap, endpoint=False
+        )
         race_x = (5000.0 * np.cos(t)).astype(np.float32)
         race_y = (5000.0 * np.sin(t)).astype(np.float32)
 
@@ -182,28 +191,34 @@ class TestExtractTrackAndPit:
         y = np.concatenate([grid_y, warmup_y, race_y])
         z = np.zeros(total, dtype=np.float32)
 
-        lap_nums = np.concatenate([
-            np.zeros(n_warmup + 50, dtype=np.int32),  # pre-race
-            np.repeat(np.arange(1, n_laps + 1), points_per_lap).astype(np.int32),
-        ])
+        lap_nums = np.concatenate(
+            [
+                np.zeros(n_warmup + 50, dtype=np.int32),  # pre-race
+                np.repeat(np.arange(1, n_laps + 1), points_per_lap).astype(np.int32),
+            ]
+        )
 
-        tel = pl.DataFrame({
-            "session_time": np.arange(total, dtype=np.float64),
-            "x": x, "y": y, "z": z,
-            "speed": np.full(total, 200.0, dtype=np.float32),
-            "throttle": np.full(total, 80.0, dtype=np.float32),
-            "brake": np.zeros(total, dtype=np.float32),
-            "lap_number": lap_nums,
-        })
+        tel = pl.DataFrame(
+            {
+                "session_time": np.arange(total, dtype=np.float64),
+                "x": x,
+                "y": y,
+                "z": z,
+                "speed": np.full(total, 200.0, dtype=np.float32),
+                "throttle": np.full(total, 80.0, dtype=np.float32),
+                "brake": np.zeros(total, dtype=np.float32),
+                "lap_number": lap_nums,
+            }
+        )
 
         track_data, session_timing = extract_track_and_pit({"DRV": tel}, "DRV")
 
         assert track_data is not None
         # Warmup should be detected (car was static then started moving)
         if session_timing is not None:
-            assert session_timing['warmup_start_time'] is not None
+            assert session_timing["warmup_start_time"] is not None
             # Warmup start should be after grid period
-            assert session_timing['warmup_start_time'] >= n_warmup - 10  # allow tolerance
+            assert session_timing["warmup_start_time"] >= n_warmup - 10  # allow tolerance
 
 
 class TestExtractTrackMultipleDrivers:

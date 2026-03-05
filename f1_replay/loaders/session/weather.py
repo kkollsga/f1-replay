@@ -4,7 +4,6 @@ Weather Extractor - Extract and compact weather events from session data
 Focuses on rain events: only records when rain starts and when it ends.
 """
 
-from typing import Optional, List
 import numpy as np
 import polars as pl
 
@@ -34,21 +33,26 @@ class WeatherExtractor:
             return pl.DataFrame({"start_time": [], "end_time": [], "duration": []})
 
         # Vectorized approach using polars shift
-        df = weather_df.select([
-            pl.col("session_time"),
-            pl.col("rainfall").cast(pl.Boolean)
-        ]).with_columns([
-            pl.col("rainfall").shift(1).alias("prev_rainfall")
-        ])
+        df = weather_df.select(
+            [pl.col("session_time"), pl.col("rainfall").cast(pl.Boolean)]
+        ).with_columns([pl.col("rainfall").shift(1).alias("prev_rainfall")])
 
         # Find transitions: start (False->True) and end (True->False)
-        starts = df.filter(
-            pl.col("rainfall") & (pl.col("prev_rainfall").is_null() | ~pl.col("prev_rainfall"))
-        ).select("session_time").to_series().to_list()
+        starts = (
+            df.filter(
+                pl.col("rainfall") & (pl.col("prev_rainfall").is_null() | ~pl.col("prev_rainfall"))
+            )
+            .select("session_time")
+            .to_series()
+            .to_list()
+        )
 
-        ends = df.filter(
-            ~pl.col("rainfall") & pl.col("prev_rainfall").fill_null(False)
-        ).select("session_time").to_series().to_list()
+        ends = (
+            df.filter(~pl.col("rainfall") & pl.col("prev_rainfall").fill_null(False))
+            .select("session_time")
+            .to_series()
+            .to_list()
+        )
 
         # Handle case where rain is ongoing at end
         rainfall_arr = weather_df["rainfall"].to_numpy()
@@ -62,20 +66,24 @@ class WeatherExtractor:
             matching_ends = [e for e in ends if e > start]
             if matching_ends:
                 end = matching_ends[0]
-                rain_events.append({
-                    "start_time": float(start),
-                    "end_time": float(end),
-                    "duration": float(end - start)
-                })
+                rain_events.append(
+                    {
+                        "start_time": float(start),
+                        "end_time": float(end),
+                        "duration": float(end - start),
+                    }
+                )
 
         if not rain_events:
             return pl.DataFrame({"start_time": [], "end_time": [], "duration": []})
 
-        return pl.DataFrame(rain_events).select([
-            pl.col("start_time").cast(pl.Float64),
-            pl.col("end_time").cast(pl.Float64),
-            pl.col("duration").cast(pl.Float64)
-        ])
+        return pl.DataFrame(rain_events).select(
+            [
+                pl.col("start_time").cast(pl.Float64),
+                pl.col("end_time").cast(pl.Float64),
+                pl.col("duration").cast(pl.Float64),
+            ]
+        )
 
     @staticmethod
     def is_raining(rain_events: pl.DataFrame, session_time: float) -> bool:
@@ -134,13 +142,10 @@ class WeatherExtractor:
             # Broadcasting: times[:, None] vs starts[None, :] gives (n_times, n_events) matrix
             # For each time, check if it falls within ANY rain interval
             in_rain = np.any(
-                (times[:, None] >= starts[None, :]) & (times[:, None] <= ends[None, :]),
-                axis=1
+                (times[:, None] >= starts[None, :]) & (times[:, None] <= ends[None, :]), axis=1
             )
 
-            tel_with_rain = tel.with_columns([
-                pl.Series("is_raining", in_rain, dtype=pl.Boolean)
-            ])
+            tel_with_rain = tel.with_columns([pl.Series("is_raining", in_rain, dtype=pl.Boolean)])
             result[driver] = tel_with_rain
 
         return result

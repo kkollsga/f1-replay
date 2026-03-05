@@ -12,11 +12,12 @@ Session Type Hierarchy:
     └── PracticeSession (FP1, FP2, FP3)
 """
 
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Any
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+
 import polars as pl
 
-from f1_replay.models import SessionData, TrackGeometry, PitLane
 from f1_replay.loaders.session.weather import WeatherExtractor
+from f1_replay.models import PitLane, SessionData, TrackGeometry
 
 if TYPE_CHECKING:
     from f1_replay.wrappers.race_weekend import RaceWeekend
@@ -152,32 +153,38 @@ class Session:
         """Extract rain events from track_status."""
         track_status = self._data.events.track_status
         if track_status.height == 0:
-            return pl.DataFrame(schema={'start_time': pl.Float64, 'end_time': pl.Float64, 'duration': pl.Float64})
+            return pl.DataFrame(
+                schema={"start_time": pl.Float64, "end_time": pl.Float64, "duration": pl.Float64}
+            )
 
         # Filter rain events
-        rain_starts = track_status.filter(pl.col('status') == 'RainStart')
-        rain_ends = track_status.filter(pl.col('status') == 'RainEnd')
+        rain_starts = track_status.filter(pl.col("status") == "RainStart")
+        rain_ends = track_status.filter(pl.col("status") == "RainEnd")
 
         if rain_starts.height == 0 or rain_ends.height == 0:
-            return pl.DataFrame(schema={'start_time': pl.Float64, 'end_time': pl.Float64, 'duration': pl.Float64})
+            return pl.DataFrame(
+                schema={"start_time": pl.Float64, "end_time": pl.Float64, "duration": pl.Float64}
+            )
 
         # Pair starts with ends
         rain_events = []
-        start_times = rain_starts['session_time'].to_list()
-        end_times = rain_ends['session_time'].to_list()
+        start_times = rain_starts["session_time"].to_list()
+        end_times = rain_ends["session_time"].to_list()
 
         for start in start_times:
             # Find next end after this start
             matching_ends = [end for end in end_times if end > start]
             if matching_ends:
                 end = min(matching_ends)
-                rain_events.append({
-                    'start_time': start,
-                    'end_time': end,
-                    'duration': end - start
-                })
+                rain_events.append({"start_time": start, "end_time": end, "duration": end - start})
 
-        return pl.DataFrame(rain_events) if rain_events else pl.DataFrame(schema={'start_time': pl.Float64, 'end_time': pl.Float64, 'duration': pl.Float64})
+        return (
+            pl.DataFrame(rain_events)
+            if rain_events
+            else pl.DataFrame(
+                schema={"start_time": pl.Float64, "end_time": pl.Float64, "duration": pl.Float64}
+            )
+        )
 
     @property
     def fastest_laps(self) -> List:
@@ -230,10 +237,10 @@ class Session:
         """Get driver information as {driver: {number, name, team, color}}."""
         return {
             driver: {
-                'number': self.driver_numbers.get(driver),
-                'name': self.driver_names.get(driver),
-                'team': self.driver_teams.get(driver),
-                'color': self.driver_colors.get(driver)
+                "number": self.driver_numbers.get(driver),
+                "name": self.driver_names.get(driver),
+                "team": self.driver_teams.get(driver),
+                "color": self.driver_colors.get(driver),
             }
             for driver in self.drivers
         }
@@ -285,6 +292,7 @@ class RaceSession(Session):
             List of (position, driver, race_distance) tuples sorted by position
         """
         from f1_replay.loaders.session.order import OrderBuilder
+
         return OrderBuilder.get_order_at_time(self.telemetry, session_time)
 
     def get_order_at_lap(self, lap: int) -> List[Tuple[int, str, float]]:
@@ -301,6 +309,7 @@ class RaceSession(Session):
             List of (position, driver, race_distance) tuples sorted by position
         """
         from f1_replay.loaders.session.order import OrderBuilder
+
         return OrderBuilder.get_order_at_lap(self.telemetry, lap, self.track_length)
 
     def get_leader_at_time(self, session_time: float) -> Optional[str]:
@@ -343,13 +352,22 @@ class RaceSession(Session):
                 .with_columns(
                     pl.col("_row_idx").rank("ordinal").over("lap_number").alias("_lap_idx")
                 )
-                .filter(pl.col("_lap_idx") == (offset + 1 if offset >= 0 else pl.col("_lap_idx").max().over("lap_number") + offset + 1))
+                .filter(
+                    pl.col("_lap_idx")
+                    == (
+                        offset + 1
+                        if offset >= 0
+                        else pl.col("_lap_idx").max().over("lap_number") + offset + 1
+                    )
+                )
                 .drop(["_row_idx", "_lap_idx"])
             )
 
         return result.sort("lap_number")
 
-    def get_telemetry_every_minute(self, driver: str, interval: float = 1.0) -> Optional[pl.DataFrame]:
+    def get_telemetry_every_minute(
+        self, driver: str, interval: float = 1.0
+    ) -> Optional[pl.DataFrame]:
         """
         Get telemetry at regular time intervals for a driver.
 
@@ -378,6 +396,7 @@ class RaceSession(Session):
 
         # Generate target times
         import numpy as np
+
         target_times = np.arange(min_time, max_time, interval_seconds)
 
         if len(target_times) == 0:
@@ -387,9 +406,11 @@ class RaceSession(Session):
         results = []
         for target in target_times:
             # Get the row with session_time closest to target
-            closest = tel.with_columns(
-                (pl.col("session_time") - target).abs().alias("_diff")
-            ).sort("_diff").head(1)
+            closest = (
+                tel.with_columns((pl.col("session_time") - target).abs().alias("_diff"))
+                .sort("_diff")
+                .head(1)
+            )
             results.append(closest.drop("_diff"))
 
         return pl.concat(results)
@@ -400,24 +421,28 @@ class RaceSession(Session):
 
 class SprintSession(RaceSession):
     """Sprint race session."""
+
     def __repr__(self) -> str:
         return f"SprintSession({self.year} R{self.round_number}: {self.event_name})"
 
 
 class QualiSession(Session):
     """Qualifying session."""
+
     def __repr__(self) -> str:
         return f"QualiSession({self.year} R{self.round_number}: {self.event_name})"
 
 
 class SprintQualiSession(Session):
     """Sprint qualifying session."""
+
     def __repr__(self) -> str:
         return f"SprintQualiSession({self.year} R{self.round_number}: {self.event_name})"
 
 
 class PracticeSession(Session):
     """Free practice session (FP1, FP2, FP3)."""
+
     def __repr__(self) -> str:
         return f"PracticeSession({self.year} R{self.round_number} {self.session_type}: {self.event_name})"
 
@@ -437,13 +462,13 @@ def create_session(
     """
     session_type = data.metadata.session_type
 
-    if session_type == 'R':
+    if session_type == "R":
         return RaceSession(data=data, weekend=weekend, raw_session=raw_session)
-    elif session_type == 'S':
+    elif session_type == "S":
         return SprintSession(data=data, weekend=weekend, raw_session=raw_session)
-    elif session_type == 'Q':
+    elif session_type == "Q":
         return QualiSession(data=data, weekend=weekend, raw_session=raw_session)
-    elif session_type == 'SQ':
+    elif session_type == "SQ":
         return SprintQualiSession(data=data, weekend=weekend, raw_session=raw_session)
     else:  # FP1, FP2, FP3
         return PracticeSession(data=data, weekend=weekend, raw_session=raw_session)

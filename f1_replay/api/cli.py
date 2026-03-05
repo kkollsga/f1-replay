@@ -15,6 +15,7 @@ import sys
 def cmd_race(args):
     """Launch race replay viewer."""
     from f1_replay.log import setup_logging
+
     setup_logging()
     from f1_replay import Manager
 
@@ -32,13 +33,13 @@ def cmd_race(args):
         host=args.host,
         port=args.port,
         debug=not args.no_debug,
-        force_update=args.force_update
+        force_update=args.force_update,
     )
 
 
 def cmd_config(args):
     """Show or set configuration."""
-    from f1_replay.config import get_config, set_cache_dir, CONFIG_FILE
+    from f1_replay.config import CONFIG_FILE, get_config, set_cache_dir
 
     if args.set_cache_dir:
         set_cache_dir(args.set_cache_dir)
@@ -57,9 +58,10 @@ def cmd_config(args):
 def cmd_server(args):
     """Run standalone API server."""
     from f1_replay.log import setup_logging
+
     setup_logging()
-    from f1_replay.managers import DataLoader
     from f1_replay.api import create_app
+    from f1_replay.managers import DataLoader
 
     loader = DataLoader(cache_dir=args.cache_dir)
     app = create_app(loader)
@@ -72,6 +74,7 @@ def cmd_server(args):
 def cmd_seasons(args):
     """List available seasons and races."""
     from f1_replay.log import setup_logging
+
     setup_logging()
     from f1_replay import Manager
 
@@ -102,10 +105,7 @@ def main():
     """Main CLI entry point."""
     from f1_replay.config import get_cache_dir
 
-    parser = argparse.ArgumentParser(
-        prog="f1-replay",
-        description="Formula 1 Race Replay Viewer"
-    )
+    parser = argparse.ArgumentParser(prog="f1-replay", description="Formula 1 Race Replay Viewer")
     subparsers = parser.add_subparsers(dest="command", help="Commands")
 
     # Common arguments
@@ -118,8 +118,14 @@ def main():
     race_parser.add_argument("--host", default="0.0.0.0", help="Host (default: 0.0.0.0)")
     race_parser.add_argument("--port", "-p", type=int, default=5000, help="Port (default: 5000)")
     race_parser.add_argument("--no-debug", action="store_true", help="Disable debug mode")
-    race_parser.add_argument("--force-update", "-f", action="store_true", help="Force reload from FastF1")
-    race_parser.add_argument("--cache-dir", default=cache_dir_default, help=f"Cache directory (default: {cache_dir_default})")
+    race_parser.add_argument(
+        "--force-update", "-f", action="store_true", help="Force reload from FastF1"
+    )
+    race_parser.add_argument(
+        "--cache-dir",
+        default=cache_dir_default,
+        help=f"Cache directory (default: {cache_dir_default})",
+    )
     race_parser.set_defaults(func=cmd_race)
 
     # === config command ===
@@ -132,13 +138,21 @@ def main():
     server_parser.add_argument("--host", default="0.0.0.0", help="Host (default: 0.0.0.0)")
     server_parser.add_argument("--port", "-p", type=int, default=5000, help="Port (default: 5000)")
     server_parser.add_argument("--no-debug", action="store_true", help="Disable debug mode")
-    server_parser.add_argument("--cache-dir", default=cache_dir_default, help=f"Cache directory (default: {cache_dir_default})")
+    server_parser.add_argument(
+        "--cache-dir",
+        default=cache_dir_default,
+        help=f"Cache directory (default: {cache_dir_default})",
+    )
     server_parser.set_defaults(func=cmd_server)
 
     # === seasons command ===
     seasons_parser = subparsers.add_parser("seasons", help="List available seasons and races")
     seasons_parser.add_argument("year", type=int, nargs="?", help="Show races for specific year")
-    seasons_parser.add_argument("--cache-dir", default=cache_dir_default, help=f"Cache directory (default: {cache_dir_default})")
+    seasons_parser.add_argument(
+        "--cache-dir",
+        default=cache_dir_default,
+        help=f"Cache directory (default: {cache_dir_default})",
+    )
     seasons_parser.set_defaults(func=cmd_seasons)
 
     # Parse and run

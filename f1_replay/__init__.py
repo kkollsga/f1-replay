@@ -25,35 +25,39 @@ Quick Start:
 __version__ = "0.1.10"
 __author__ = "F1 Replay Development"
 
+# Config
+from f1_replay.config import get_cache_dir, get_config, set_cache_dir
+
 # High-level API (most common imports)
 from f1_replay.managers import DataLoader, LoadResult, Manager
 from f1_replay.wrappers import (
+    PracticeSession,
+    QualiSession,
+    RaceSession,
     RaceWeekend,
     Session,
-    RaceSession, SprintSession, QualiSession, SprintQualiSession, PracticeSession,
+    SprintQualiSession,
+    SprintSession,
     create_session,
 )
 
-# Config
-from f1_replay.config import get_cache_dir, set_cache_dir, get_config
-
 __all__ = [
     # Managers
-    'DataLoader',
-    'LoadResult',
-    'Manager',
+    "DataLoader",
+    "LoadResult",
+    "Manager",
     # Wrappers
-    'RaceWeekend',
+    "RaceWeekend",
     # Session classes
-    'Session',
-    'RaceSession',
-    'SprintSession',
-    'QualiSession',
-    'SprintQualiSession',
-    'PracticeSession',
-    'create_session',
+    "Session",
+    "RaceSession",
+    "SprintSession",
+    "QualiSession",
+    "SprintQualiSession",
+    "PracticeSession",
+    "create_session",
     # Config
-    'get_cache_dir',
-    'set_cache_dir',
-    'get_config',
+    "get_cache_dir",
+    "set_cache_dir",
+    "get_config",
 ]

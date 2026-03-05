@@ -6,15 +6,25 @@ Track/pit geometry is extracted during weekend build (not deferred to session).
 """
 
 from typing import Optional, Union
+
 import numpy as np
-from f1_replay.models import (
-    F1Weekend, CircuitData, TrackGeometry, EventInfo, SessionInfo, PitLane, DirectionArrow, MarshalSector, Corner
-)
+
 from f1_replay.loaders.core.client import FastF1Client
-from f1_replay.loaders.weekend.light_telemetry import LightTelemetryBuilder
 from f1_replay.loaders.session.telemetry import TrackData
-from f1_replay.services.track_finder import get_location_aliases
+from f1_replay.loaders.weekend.light_telemetry import LightTelemetryBuilder
 from f1_replay.log import logger
+from f1_replay.models import (
+    CircuitData,
+    Corner,
+    DirectionArrow,
+    EventInfo,
+    F1Weekend,
+    MarshalSector,
+    PitLane,
+    SessionInfo,
+    TrackGeometry,
+)
+from f1_replay.services.track_finder import get_location_aliases
 
 # Manual rotation overrides (location name -> degrees)
 # Keys must be lowercase with underscores (normalized format)
@@ -38,11 +48,13 @@ MANUAL_ROTATIONS = {
     "yas_marina": 265,
 }
 
+
 def extract_timezone_offset(date_str: str) -> str:
     """Extract timezone offset from ISO datetime string (e.g., '+02:00' from '2025-09-05T13:30:00+02:00')."""
     import re
+
     if date_str:
-        match = re.search(r'([+-]\d{2}:\d{2})$', date_str)
+        match = re.search(r"([+-]\d{2}:\d{2})$", date_str)
         if match:
             return match.group(1)
     return ""
@@ -73,8 +85,9 @@ class WeekendProcessor:
     def __init__(self, fastf1_client: FastF1Client):
         self.fastf1_client = fastf1_client
 
-    def build_weekend(self, year: int, round_num_or_name: Union[int, str],
-                      test_number: Optional[int] = None) -> Optional[F1Weekend]:
+    def build_weekend(
+        self, year: int, round_num_or_name: Union[int, str], test_number: Optional[int] = None
+    ) -> Optional[F1Weekend]:
         """
         Build weekend data with complete track geometry.
 
@@ -90,7 +103,11 @@ class WeekendProcessor:
             logger.info(f"→ Loading weekend {year} T{test_number:02d}...")
             event = self.fastf1_client.get_testing_event(year, test_number)
         else:
-            identifier = f"'{round_num_or_name}'" if isinstance(round_num_or_name, str) else f"Round {round_num_or_name}"
+            identifier = (
+                f"'{round_num_or_name}'"
+                if isinstance(round_num_or_name, str)
+                else f"Round {round_num_or_name}"
+            )
             logger.info(f"→ Loading weekend {year} {identifier}...")
             event = self.fastf1_client.get_event(year, round_num_or_name)
 
@@ -98,22 +115,29 @@ class WeekendProcessor:
             return None
 
         # Get round number from event (may be 0 for testing)
-        round_num = event.get('RoundNumber', 0)
-        circuit_name = event.get('Location', '') or event.get('OfficialEventName', '')
+        round_num = event.get("RoundNumber", 0)
+        circuit_name = event.get("Location", "") or event.get("OfficialEventName", "")
 
         # Build event info first (needed for testing event detection)
         event_info = self._build_event_info(year, round_num, event)
 
         # Build circuit with REAL track geometry (not placeholder)
-        circuit = self._build_circuit_with_track(year, round_num_or_name, test_number, circuit_name, event_info)
+        circuit = self._build_circuit_with_track(
+            year, round_num_or_name, test_number, circuit_name, event_info
+        )
 
         weekend = F1Weekend(event=event_info, circuit=circuit)
         logger.info(f"  ✓ Weekend complete: {event_info.name}")
         return weekend
 
-    def _build_circuit_with_track(self, year: int, round_num_or_name: Union[int, str],
-                                   test_number: Optional[int] = None, circuit_name: str = "",
-                                   event_info: Optional[EventInfo] = None) -> Optional[CircuitData]:
+    def _build_circuit_with_track(
+        self,
+        year: int,
+        round_num_or_name: Union[int, str],
+        test_number: Optional[int] = None,
+        circuit_name: str = "",
+        event_info: Optional[EventInfo] = None,
+    ) -> Optional[CircuitData]:
         """
         Build circuit data with real track geometry extracted from telemetry.
 
@@ -134,14 +158,14 @@ class WeekendProcessor:
         Returns:
             CircuitData with real track or placeholder
         """
-        logger.info(f"  → Building circuit with track geometry...")
+        logger.info("  → Building circuit with track geometry...")
 
         # Get rotation (manual override takes priority)
         rotation_deg = self._get_rotation(year, round_num_or_name, test_number, circuit_name)
 
         # Skip extraction for testing events (use historical data instead)
-        if event_info and event_info.format == 'testing':
-            logger.warning(f"  ⚠ Testing event - creating placeholder (will use historical track)")
+        if event_info and event_info.format == "testing":
+            logger.warning("  ⚠ Testing event - creating placeholder (will use historical track)")
             return self._build_placeholder_circuit(circuit_name, rotation_deg)
 
         # Try to extract track from race session
@@ -149,14 +173,19 @@ class WeekendProcessor:
 
         if track_data is None:
             # Fallback: create placeholder (for future races, new circuits)
-            logger.warning(f"  ⚠ Could not extract track - using placeholder")
+            logger.warning("  ⚠ Could not extract track - using placeholder")
             return self._build_placeholder_circuit(circuit_name, rotation_deg)
 
         # Build complete CircuitData with real track
         return self._build_complete_circuit(track_data, circuit_name, rotation_deg)
 
-    def _get_rotation(self, year: int, round_num_or_name: Union[int, str],
-                      test_number: Optional[int], circuit_name: str) -> float:
+    def _get_rotation(
+        self,
+        year: int,
+        round_num_or_name: Union[int, str],
+        test_number: Optional[int],
+        circuit_name: str,
+    ) -> float:
         """Get circuit rotation from manual override or FastF1."""
         rotation_deg = 0.0
 
@@ -165,15 +194,19 @@ class WeekendProcessor:
         if test_number is not None:
             for session_num in [1, 2, 3]:
                 try:
-                    session = self.fastf1_client.get_testing_session(year, test_number, session_num, load_telemetry=False)
+                    session = self.fastf1_client.get_testing_session(
+                        year, test_number, session_num, load_telemetry=False
+                    )
                     if session:
                         break
                 except (ValueError, TypeError, KeyError, Exception):
                     continue
         else:
-            for session_type in ['FP1', 'Q', 'R']:
+            for session_type in ["FP1", "Q", "R"]:
                 try:
-                    session = self.fastf1_client.get_session(year, round_num_or_name, session_type, load_telemetry=False)
+                    session = self.fastf1_client.get_session(
+                        year, round_num_or_name, session_type, load_telemetry=False
+                    )
                     if session:
                         break
                 except (ValueError, TypeError, KeyError, Exception):
@@ -182,7 +215,7 @@ class WeekendProcessor:
         if session:
             try:
                 circuit_info = session.get_circuit_info()
-                if circuit_info and hasattr(circuit_info, 'rotation'):
+                if circuit_info and hasattr(circuit_info, "rotation"):
                     rotation_deg = float(circuit_info.rotation)
             except (ValueError, TypeError, AttributeError):
                 pass
@@ -197,8 +230,9 @@ class WeekendProcessor:
 
         return rotation_deg
 
-    def _extract_track_from_race(self, year: int, round_num_or_name: Union[int, str],
-                                 test_number: Optional[int]) -> Optional[TrackData]:
+    def _extract_track_from_race(
+        self, year: int, round_num_or_name: Union[int, str], test_number: Optional[int]
+    ) -> Optional[TrackData]:
         """
         Extract track geometry from race session only.
 
@@ -218,8 +252,8 @@ class WeekendProcessor:
                 # Testing events don't extract track (handled by historical search in Manager)
                 return None
 
-            logger.info(f"  → Loading race session for track extraction...")
-            session = self.fastf1_client.get_session_with_all_data(year, round_num_or_name, 'R')
+            logger.info("  → Loading race session for track extraction...")
+            session = self.fastf1_client.get_session_with_all_data(year, round_num_or_name, "R")
 
             if session is None:
                 return None
@@ -227,7 +261,7 @@ class WeekendProcessor:
             # Get race winner
             winner = self._get_race_winner(session)
             if winner is None:
-                logger.warning(f"  ⚠ Could not determine race winner")
+                logger.warning("  ⚠ Could not determine race winner")
                 return None
 
             logger.info(f"  → Extracting track from race winner: {winner}")
@@ -250,9 +284,9 @@ class WeekendProcessor:
         try:
             results = f1_session.results
             if results is not None and len(results) > 0:
-                p1 = results[results['Position'] == 1]
+                p1 = results[results["Position"] == 1]
                 if len(p1) > 0:
-                    return p1.iloc[0]['Abbreviation']
+                    return p1.iloc[0]["Abbreviation"]
         except Exception:
             pass
         return None
@@ -278,15 +312,20 @@ class WeekendProcessor:
             corners = None
 
             # Extract marshal sectors
-            if hasattr(circuit_info, 'marshal_sectors') and circuit_info.marshal_sectors is not None:
+            if (
+                hasattr(circuit_info, "marshal_sectors")
+                and circuit_info.marshal_sectors is not None
+            ):
                 marshal_df = circuit_info.marshal_sectors
                 if len(marshal_df) > 0:
-                    sector_nums = marshal_df['Number'].values.astype(np.int32)
-                    sector_x = marshal_df['X'].values.astype(np.float32)
-                    sector_y = marshal_df['Y'].values.astype(np.float32)
+                    sector_nums = marshal_df["Number"].values.astype(np.int32)
+                    sector_x = marshal_df["X"].values.astype(np.float32)
+                    sector_y = marshal_df["Y"].values.astype(np.float32)
 
                     # Project onto track
-                    dist_sq = (sector_x[:, None] - track_x[None, :])**2 + (sector_y[:, None] - track_y[None, :])**2
+                    dist_sq = (sector_x[:, None] - track_x[None, :]) ** 2 + (
+                        sector_y[:, None] - track_y[None, :]
+                    ) ** 2
                     closest_indices = np.argmin(dist_sq, axis=1)
                     dist_meters = track_dist[closest_indices] / 10.0
 
@@ -294,30 +333,46 @@ class WeekendProcessor:
 
                     marshal_sectors = []
                     for i, (sector_num, from_dist) in enumerate(sector_distances):
-                        to_dist = sector_distances[i + 1][1] if i + 1 < len(sector_distances) else lap_distance_m + sector_distances[0][1]
+                        to_dist = (
+                            sector_distances[i + 1][1]
+                            if i + 1 < len(sector_distances)
+                            else lap_distance_m + sector_distances[0][1]
+                        )
                         marshal_sectors.append((sector_num, from_dist, to_dist))
 
                     logger.info(f"    ✓ Marshal sectors: {len(marshal_sectors)}")
 
             # Extract corners
-            if hasattr(circuit_info, 'corners') and circuit_info.corners is not None:
+            if hasattr(circuit_info, "corners") and circuit_info.corners is not None:
                 corners_df = circuit_info.corners
                 if len(corners_df) > 0:
-                    corner_nums = corners_df['Number'].values.astype(np.int32)
-                    corner_x = corners_df['X'].values.astype(np.float32)
-                    corner_y = corners_df['Y'].values.astype(np.float32)
-                    corner_angles = corners_df['Angle'].values.astype(np.float32)
-                    corner_letters = corners_df['Letter'].values if 'Letter' in corners_df.columns else [''] * len(corner_nums)
+                    corner_nums = corners_df["Number"].values.astype(np.int32)
+                    corner_x = corners_df["X"].values.astype(np.float32)
+                    corner_y = corners_df["Y"].values.astype(np.float32)
+                    corner_angles = corners_df["Angle"].values.astype(np.float32)
+                    corner_letters = (
+                        corners_df["Letter"].values
+                        if "Letter" in corners_df.columns
+                        else [""] * len(corner_nums)
+                    )
 
                     # Project onto track
-                    dist_sq = (corner_x[:, None] - track_x[None, :])**2 + (corner_y[:, None] - track_y[None, :])**2
+                    dist_sq = (corner_x[:, None] - track_x[None, :]) ** 2 + (
+                        corner_y[:, None] - track_y[None, :]
+                    ) ** 2
                     closest_indices = np.argmin(dist_sq, axis=1)
                     dist_meters = track_dist[closest_indices] / 10.0
 
                     corners = []
                     for i, num in enumerate(corner_nums):
-                        letter = str(corner_letters[i]) if corner_letters[i] and str(corner_letters[i]) != 'nan' else ''
-                        corners.append((int(num), float(dist_meters[i]), float(corner_angles[i]), letter))
+                        letter = (
+                            str(corner_letters[i])
+                            if corner_letters[i] and str(corner_letters[i]) != "nan"
+                            else ""
+                        )
+                        corners.append(
+                            (int(num), float(dist_meters[i]), float(corner_angles[i]), letter)
+                        )
 
                     logger.info(f"    ✓ Corners: {len(corners)}")
 
@@ -337,40 +392,40 @@ class WeekendProcessor:
                 speed=track_data.speed,
                 throttle=track_data.throttle,
                 brake=track_data.brake,
-                track_z=track_data.track_z
+                track_z=track_data.track_z,
             )
 
         except Exception as e:
             logger.warning(f"    ⚠ Could not extract circuit info: {e}")
             return track_data
 
-    def _build_complete_circuit(self, track_data: TrackData, circuit_name: str,
-                                rotation_deg: float) -> CircuitData:
+    def _build_complete_circuit(
+        self, track_data: TrackData, circuit_name: str, rotation_deg: float
+    ) -> CircuitData:
         """Build CircuitData from extracted TrackData."""
         # Convert distances from decimeters to meters
         circuit_length_meters = track_data.lap_distance / 10.0
-        distance_meters = track_data.track_distance / 10.0 if track_data.track_distance is not None else None
+        distance_meters = (
+            track_data.track_distance / 10.0 if track_data.track_distance is not None else None
+        )
 
         # Convert marshal sector tuples to MarshalSector objects
         marshal_sectors = []
         if track_data.marshal_sectors:
             for sector_num, from_dist, to_dist in track_data.marshal_sectors:
-                marshal_sectors.append(MarshalSector(
-                    number=int(sector_num),
-                    start_distance=float(from_dist),
-                    end_distance=float(to_dist)
-                ))
+                marshal_sectors.append(
+                    MarshalSector(
+                        number=int(sector_num),
+                        start_distance=float(from_dist),
+                        end_distance=float(to_dist),
+                    )
+                )
 
         # Convert corner tuples to Corner objects
         corners = []
         if track_data.corners:
             for number, distance, angle, letter in track_data.corners:
-                corners.append(Corner(
-                    number=number,
-                    distance=distance,
-                    angle=angle,
-                    letter=letter
-                ))
+                corners.append(Corner(number=number, distance=distance, angle=angle, letter=letter))
 
         # Build TrackGeometry
         track = TrackGeometry(
@@ -382,7 +437,7 @@ class WeekendProcessor:
             speed=track_data.speed,
             throttle=track_data.throttle,
             brake=track_data.brake,
-            z=track_data.track_z
+            z=track_data.track_z,
         )
 
         # Build pit lane
@@ -394,7 +449,7 @@ class WeekendProcessor:
                 distance=track_data.pit_distance,
                 length=track_data.pit_length,
                 entry_track_dist=track_data.pit_entry_distance or 0.0,
-                exit_track_dist=track_data.pit_exit_distance or 0.0
+                exit_track_dist=track_data.pit_exit_distance or 0.0,
             )
 
         # Calculate direction arrow (opposite side of pit lane)
@@ -403,7 +458,7 @@ class WeekendProcessor:
             # Track direction at start/finish
             dx = track_data.track_x[1] - track_data.track_x[0]
             dy = track_data.track_y[1] - track_data.track_y[0]
-            length = np.sqrt(dx*dx + dy*dy)
+            length = np.sqrt(dx * dx + dy * dy)
             if length > 0:
                 # Unit vector in racing direction
                 dir_x, dir_y = dx / length, dy / length
@@ -418,22 +473,29 @@ class WeekendProcessor:
                 right_y = track_data.track_y[0] - perp_y * arrow_offset
 
                 # Pick side farther from pit
-                if pit_lane is not None and track_data.pit_x is not None and len(track_data.pit_x) > 0:
+                if (
+                    pit_lane is not None
+                    and track_data.pit_x is not None
+                    and len(track_data.pit_x) > 0
+                ):
                     start_x, start_y = track_data.track_x[0], track_data.track_y[0]
-                    pit_dists = (track_data.pit_x - start_x)**2 + (track_data.pit_y - start_y)**2
+                    pit_dists = (track_data.pit_x - start_x) ** 2 + (
+                        track_data.pit_y - start_y
+                    ) ** 2
                     nearest_idx = np.argmin(pit_dists)
                     pit_near_x = track_data.pit_x[nearest_idx]
                     pit_near_y = track_data.pit_y[nearest_idx]
 
-                    dist_left = (left_x - pit_near_x)**2 + (left_y - pit_near_y)**2
-                    dist_right = (right_x - pit_near_x)**2 + (right_y - pit_near_y)**2
-                    arrow_x, arrow_y = (left_x, left_y) if dist_left > dist_right else (right_x, right_y)
+                    dist_left = (left_x - pit_near_x) ** 2 + (left_y - pit_near_y) ** 2
+                    dist_right = (right_x - pit_near_x) ** 2 + (right_y - pit_near_y) ** 2
+                    arrow_x, arrow_y = (
+                        (left_x, left_y) if dist_left > dist_right else (right_x, right_y)
+                    )
                 else:
                     arrow_x, arrow_y = left_x, left_y
 
                 direction_arrow = DirectionArrow(
-                    x=float(arrow_x), y=float(arrow_y),
-                    dx=float(dir_x), dy=float(dir_y)
+                    x=float(arrow_x), y=float(arrow_y), dx=float(dir_x), dy=float(dir_y)
                 )
 
         return CircuitData(
@@ -444,7 +506,7 @@ class WeekendProcessor:
             rotation=rotation_deg,
             name=circuit_name,
             direction_arrow=direction_arrow,
-            metadata={'source': 'light_telemetry_weekend'}
+            metadata={"source": "light_telemetry_weekend"},
         )
 
     def _build_placeholder_circuit(self, circuit_name: str, rotation_deg: float) -> CircuitData:
@@ -467,7 +529,7 @@ class WeekendProcessor:
             corners=[],
             rotation=rotation_deg,
             name=circuit_name,
-            metadata={'source': 'weekend_placeholder'}
+            metadata={"source": "weekend_placeholder"},
         )
 
         return circuit
@@ -478,17 +540,17 @@ class WeekendProcessor:
         sessions = []
 
         for i in range(1, 6):  # Session1 through Session5
-            session_name = event.get(f'Session{i}')
-            session_date = event.get(f'Session{i}Date')
+            session_name = event.get(f"Session{i}")
+            session_date = event.get(f"Session{i}Date")
 
-            if session_name and str(session_name) not in ('nan', 'None', ''):
+            if session_name and str(session_name) not in ("nan", "None", ""):
                 date_str = ""
                 if session_date is not None:
                     try:
                         date_str = str(session_date)
                         # Clean up pandas timestamp format
-                        if 'T' not in date_str and ' ' in date_str:
-                            date_str = date_str.replace(' ', 'T')
+                        if "T" not in date_str and " " in date_str:
+                            date_str = date_str.replace(" ", "T")
                     except (ValueError, TypeError, AttributeError):
                         pass
                 sessions.append(SessionInfo(name=str(session_name), date=date_str))
@@ -498,7 +560,7 @@ class WeekendProcessor:
         if sessions:
             first_date = sessions[0].date
             if first_date:
-                event_start = first_date.split('T')[0][:10]
+                event_start = first_date.split("T")[0][:10]
 
         # Extract timezone offset from first session's datetime string
         timezone = ""
@@ -509,15 +571,15 @@ class WeekendProcessor:
                     break
 
         return EventInfo(
-            name=event.get('EventName', ''),
-            official_name=event.get('OfficialEventName', ''),
-            circuit_name=event.get('Location', ''),
-            country=event.get('Country', ''),
+            name=event.get("EventName", ""),
+            official_name=event.get("OfficialEventName", ""),
+            circuit_name=event.get("Location", ""),
+            country=event.get("Country", ""),
             year=year,
             round_number=round_num,
             start_date=event_start,
-            end_date=str(event.get('EventDate', '')).split(' ')[0],
+            end_date=str(event.get("EventDate", "")).split(" ")[0],
             sessions=sessions,
             timezone_offset=timezone,
-            format=str(event.get('EventFormat', 'conventional')),
+            format=str(event.get("EventFormat", "conventional")),
         )

@@ -18,14 +18,15 @@ Skips:
 - Race status
 """
 
-from typing import Optional, List, Tuple
+from typing import List, Optional, Tuple
+
 import numpy as np
 import pandas as pd
 import polars as pl
 
 from f1_replay.loaders.session.telemetry import TrackData
-from f1_replay.models import TrackGeometry
 from f1_replay.log import logger
+from f1_replay.models import TrackGeometry
 
 
 class LightTelemetryBuilder:
@@ -46,30 +47,30 @@ class LightTelemetryBuilder:
         Returns:
             TrackData with track and pit geometry, or None if failed
         """
-        if not hasattr(f1_session, 'pos_data') or f1_session.pos_data is None:
+        if not hasattr(f1_session, "pos_data") or f1_session.pos_data is None:
             logger.warning("  ⚠ No position data in session")
             return None
 
-        if not hasattr(f1_session, 'laps') or f1_session.laps is None:
+        if not hasattr(f1_session, "laps") or f1_session.laps is None:
             logger.warning("  ⚠ No lap data in session")
             return None
 
         # Get driver's data
         # pos_data and car_data are dicts keyed by driver number
         pos_data = f1_session.pos_data
-        car_data = f1_session.car_data if hasattr(f1_session, 'car_data') else None
+        car_data = f1_session.car_data if hasattr(f1_session, "car_data") else None
         laps = f1_session.laps
 
         # Find driver number for this abbreviation
         driver_num = None
-        driver_laps = laps[laps['Driver'] == driver_abbr].copy()
+        driver_laps = laps[laps["Driver"] == driver_abbr].copy()
         if len(driver_laps) == 0:
             logger.warning(f"  ⚠ No lap data for {driver_abbr}")
             return None
 
         # Get driver number from first lap
-        if 'DriverNumber' in driver_laps.columns:
-            driver_num = driver_laps.iloc[0]['DriverNumber']
+        if "DriverNumber" in driver_laps.columns:
+            driver_num = driver_laps.iloc[0]["DriverNumber"]
 
         if driver_num is None:
             logger.warning(f"  ⚠ Could not find driver number for {driver_abbr}")
@@ -87,7 +88,9 @@ class LightTelemetryBuilder:
 
         # Build light telemetry
         logger.info(f"  → Building light telemetry for {driver_abbr}...")
-        telemetry, pit_windows = LightTelemetryBuilder._build_light_telemetry(driver_pos, driver_laps)
+        telemetry, pit_windows = LightTelemetryBuilder._build_light_telemetry(
+            driver_pos, driver_laps
+        )
 
         if telemetry is None or len(telemetry) == 0:
             logger.warning("  ⚠ Failed to build telemetry")
@@ -105,7 +108,9 @@ class LightTelemetryBuilder:
         return track_data
 
     @staticmethod
-    def _build_light_telemetry(pos_df: pd.DataFrame, laps_df: pd.DataFrame) -> Tuple[Optional[pl.DataFrame], List[Tuple[float, float]]]:
+    def _build_light_telemetry(
+        pos_df: pd.DataFrame, laps_df: pd.DataFrame
+    ) -> Tuple[Optional[pl.DataFrame], List[Tuple[float, float]]]:
         """
         Build minimal telemetry for track extraction.
 
@@ -119,24 +124,31 @@ class LightTelemetryBuilder:
             Tuple of (telemetry DataFrame, pit_windows list)
         """
         # Sort by SessionTime
-        pos_df = pos_df.sort_values('SessionTime').reset_index(drop=True)
+        pos_df = pos_df.sort_values("SessionTime").reset_index(drop=True)
 
         # Extract basic columns
-        if 'SessionTime' not in pos_df.columns:
+        if "SessionTime" not in pos_df.columns:
             return None, []
 
-        session_times = pos_df['SessionTime'].dt.total_seconds().values.astype(np.float64)
-        x = pos_df['X'].values.astype(np.float32) if 'X' in pos_df.columns else np.zeros(len(pos_df), dtype=np.float32)
-        y = pos_df['Y'].values.astype(np.float32) if 'Y' in pos_df.columns else np.zeros(len(pos_df), dtype=np.float32)
-        z = pos_df['Z'].values.astype(np.float32) if 'Z' in pos_df.columns else np.zeros(len(pos_df), dtype=np.float32)
+        session_times = pos_df["SessionTime"].dt.total_seconds().values.astype(np.float64)
+        x = (
+            pos_df["X"].values.astype(np.float32)
+            if "X" in pos_df.columns
+            else np.zeros(len(pos_df), dtype=np.float32)
+        )
+        y = (
+            pos_df["Y"].values.astype(np.float32)
+            if "Y" in pos_df.columns
+            else np.zeros(len(pos_df), dtype=np.float32)
+        )
+        z = (
+            pos_df["Z"].values.astype(np.float32)
+            if "Z" in pos_df.columns
+            else np.zeros(len(pos_df), dtype=np.float32)
+        )
 
         # Create initial DataFrame
-        telemetry_df = pl.DataFrame({
-            'session_time': session_times,
-            'x': x,
-            'y': y,
-            'z': z
-        })
+        telemetry_df = pl.DataFrame({"session_time": session_times, "x": x, "y": y, "z": z})
 
         # Add lap_number using lap completion times
         telemetry_df, pit_windows = LightTelemetryBuilder._add_lap_info_light(telemetry_df, laps_df)
@@ -144,7 +156,9 @@ class LightTelemetryBuilder:
         return telemetry_df, pit_windows
 
     @staticmethod
-    def _add_lap_info_light(telemetry_df: pl.DataFrame, laps_df: pd.DataFrame) -> Tuple[pl.DataFrame, List[Tuple[float, float]]]:
+    def _add_lap_info_light(
+        telemetry_df: pl.DataFrame, laps_df: pd.DataFrame
+    ) -> Tuple[pl.DataFrame, List[Tuple[float, float]]]:
         """
         Add lap_number to telemetry using lap completion times.
 
@@ -162,26 +176,26 @@ class LightTelemetryBuilder:
         pit_windows = []
 
         # Get lap completion times
-        if 'LapNumber' not in laps_df.columns:
-            telemetry_df = telemetry_df.with_columns(pl.lit(0).cast(pl.Int32).alias('lap_number'))
+        if "LapNumber" not in laps_df.columns:
+            telemetry_df = telemetry_df.with_columns(pl.lit(0).cast(pl.Int32).alias("lap_number"))
             return telemetry_df, pit_windows
 
-        lap_nums_arr = laps_df['LapNumber'].values.astype(np.int32)
+        lap_nums_arr = laps_df["LapNumber"].values.astype(np.int32)
 
-        if 'Time' in laps_df.columns:
-            lap_completion_times = laps_df['Time'].dt.total_seconds().values
+        if "Time" in laps_df.columns:
+            lap_completion_times = laps_df["Time"].dt.total_seconds().values
         else:
             lap_completion_times = np.full(len(laps_df), np.nan)
 
-        if 'LapStartTime' in laps_df.columns:
-            lap_start_times = laps_df['LapStartTime'].dt.total_seconds().values
+        if "LapStartTime" in laps_df.columns:
+            lap_start_times = laps_df["LapStartTime"].dt.total_seconds().values
         else:
             lap_start_times = np.full(len(laps_df), np.nan)
 
         # Sort by lap completion time
         valid_completion = ~np.isnan(lap_completion_times)
         if not np.any(valid_completion):
-            telemetry_df = telemetry_df.with_columns(pl.lit(0).cast(pl.Int32).alias('lap_number'))
+            telemetry_df = telemetry_df.with_columns(pl.lit(0).cast(pl.Int32).alias("lap_number"))
             return telemetry_df, pit_windows
 
         sort_idx = np.argsort(lap_completion_times)
@@ -193,18 +207,20 @@ class LightTelemetryBuilder:
         race_start_time = lap_start_times[0] if not np.isnan(lap_start_times[0]) else 0
 
         # Get telemetry session times
-        session_times = telemetry_df['session_time'].to_numpy()
+        session_times = telemetry_df["session_time"].to_numpy()
 
         # Determine lap_number using lap COMPLETION times
-        completed_laps = np.searchsorted(lap_completion_times, session_times, side='right')
+        completed_laps = np.searchsorted(lap_completion_times, session_times, side="right")
         lap_numbers = completed_laps + 1
         lap_numbers[session_times < race_start_time] = 0
 
-        telemetry_df = telemetry_df.with_columns(pl.Series('lap_number', lap_numbers, dtype=pl.Int32))
+        telemetry_df = telemetry_df.with_columns(
+            pl.Series("lap_number", lap_numbers, dtype=pl.Int32)
+        )
 
         # Extract pit windows from PitInTime/PitOutTime
-        if 'PitInTime' in laps_df.columns:
-            pit_in_series = laps_df['PitInTime'].dropna()
+        if "PitInTime" in laps_df.columns:
+            pit_in_series = laps_df["PitInTime"].dropna()
             if len(pit_in_series) > 0:
                 pit_in_times = pit_in_series.dt.total_seconds().values
                 pit_in_times = np.sort(pit_in_times)
@@ -213,8 +229,8 @@ class LightTelemetryBuilder:
         else:
             pit_in_times = np.array([])
 
-        if 'PitOutTime' in laps_df.columns:
-            pit_out_series = laps_df['PitOutTime'].dropna()
+        if "PitOutTime" in laps_df.columns:
+            pit_out_series = laps_df["PitOutTime"].dropna()
             if len(pit_out_series) > 0:
                 pit_out_times = pit_out_series.dt.total_seconds().values
                 pit_out_times = np.sort(pit_out_times)
@@ -225,7 +241,7 @@ class LightTelemetryBuilder:
 
         # Pair them up: each pit_in with next pit_out
         if len(pit_in_times) > 0 and len(pit_out_times) > 0:
-            out_indices = np.searchsorted(pit_out_times, pit_in_times, side='right')
+            out_indices = np.searchsorted(pit_out_times, pit_in_times, side="right")
             for i, pit_in in enumerate(pit_in_times):
                 if out_indices[i] < len(pit_out_times):
                     pit_windows.append((float(pit_in), float(pit_out_times[out_indices[i]])))
@@ -233,8 +249,12 @@ class LightTelemetryBuilder:
         return telemetry_df, pit_windows
 
     @staticmethod
-    def _extract_track_and_pit_light(telemetry: pl.DataFrame, pit_windows: List[Tuple[float, float]],
-                                     car_df: Optional[pd.DataFrame], driver: str) -> Optional[TrackData]:
+    def _extract_track_and_pit_light(
+        telemetry: pl.DataFrame,
+        pit_windows: List[Tuple[float, float]],
+        car_df: Optional[pd.DataFrame],
+        driver: str,
+    ) -> Optional[TrackData]:
         """
         Extract track and pit from light telemetry.
 
@@ -255,7 +275,7 @@ class LightTelemetryBuilder:
             TrackData or None
         """
         # Extract track from racing laps (lap_number >= 1)
-        racing = telemetry.filter(pl.col('lap_number') >= 1)
+        racing = telemetry.filter(pl.col("lap_number") >= 1)
         if len(racing) == 0:
             logger.warning("  ⚠ No racing telemetry found")
             return None
@@ -263,8 +283,8 @@ class LightTelemetryBuilder:
         # Find laps that have pit activity
         pit_laps = set()
         if pit_windows:
-            session_times = telemetry['session_time'].to_numpy()
-            lap_numbers = telemetry['lap_number'].to_numpy()
+            session_times = telemetry["session_time"].to_numpy()
+            lap_numbers = telemetry["lap_number"].to_numpy()
             for pit_in, pit_out in pit_windows:
                 pit_mask = (session_times >= pit_in) & (session_times < pit_out)
                 pit_laps.update(lap_numbers[pit_mask].tolist())
@@ -274,39 +294,48 @@ class LightTelemetryBuilder:
         exclude_laps = pit_laps | pit_out_laps | {1}
 
         # Find fastest lap by duration
-        lap_times = racing.group_by('lap_number').agg([
-            pl.col('session_time').min().alias('start_time'),
-            pl.col('session_time').max().alias('end_time'),
-            pl.len().alias('n_points')
-        ]).with_columns(
-            (pl.col('end_time') - pl.col('start_time')).alias('lap_duration')
-        ).filter(
-            (pl.col('n_points') > 100) &
-            (~pl.col('lap_number').is_in(list(exclude_laps)))
-        ).sort('lap_duration')
+        lap_times = (
+            racing.group_by("lap_number")
+            .agg(
+                [
+                    pl.col("session_time").min().alias("start_time"),
+                    pl.col("session_time").max().alias("end_time"),
+                    pl.len().alias("n_points"),
+                ]
+            )
+            .with_columns((pl.col("end_time") - pl.col("start_time")).alias("lap_duration"))
+            .filter((pl.col("n_points") > 100) & (~pl.col("lap_number").is_in(list(exclude_laps))))
+            .sort("lap_duration")
+        )
 
         # Fallback: if no clean laps, try without excluding pit laps
         if len(lap_times) == 0:
             logger.warning("  ⚠ No clean laps, falling back to any racing lap")
-            lap_times = racing.group_by('lap_number').agg([
-                pl.col('session_time').min().alias('start_time'),
-                pl.col('session_time').max().alias('end_time'),
-                pl.len().alias('n_points')
-            ]).with_columns(
-                (pl.col('end_time') - pl.col('start_time')).alias('lap_duration')
-            ).filter(pl.col('n_points') > 100).sort('lap_duration')
+            lap_times = (
+                racing.group_by("lap_number")
+                .agg(
+                    [
+                        pl.col("session_time").min().alias("start_time"),
+                        pl.col("session_time").max().alias("end_time"),
+                        pl.len().alias("n_points"),
+                    ]
+                )
+                .with_columns((pl.col("end_time") - pl.col("start_time")).alias("lap_duration"))
+                .filter(pl.col("n_points") > 100)
+                .sort("lap_duration")
+            )
 
         if len(lap_times) == 0:
             logger.warning("  ⚠ No valid laps found")
             return None
 
-        best_lap = lap_times['lap_number'][0]
-        lap_duration = lap_times['lap_duration'][0]
-        lap_tel = racing.filter(pl.col('lap_number') == best_lap)
+        best_lap = lap_times["lap_number"][0]
+        lap_duration = lap_times["lap_duration"][0]
+        lap_tel = racing.filter(pl.col("lap_number") == best_lap)
 
-        track_x = lap_tel['x'].to_numpy().astype(np.float32)
-        track_y = lap_tel['y'].to_numpy().astype(np.float32)
-        track_z = lap_tel['z'].to_numpy().astype(np.float32)
+        track_x = lap_tel["x"].to_numpy().astype(np.float32)
+        track_y = lap_tel["y"].to_numpy().astype(np.float32)
+        track_z = lap_tel["z"].to_numpy().astype(np.float32)
 
         # Sample car data for reference lap (speed, throttle, brake)
         track_speed = None
@@ -316,19 +345,19 @@ class LightTelemetryBuilder:
         if car_df is not None and len(car_df) > 0:
             try:
                 # Get lap timestamps
-                lap_session_times = lap_tel['session_time'].to_numpy()
-                car_session_times = car_df['SessionTime'].dt.total_seconds().values
+                lap_session_times = lap_tel["session_time"].to_numpy()
+                car_session_times = car_df["SessionTime"].dt.total_seconds().values
 
                 # Sample car data using nearest-neighbor
                 indices = np.searchsorted(car_session_times, lap_session_times)
                 indices = np.clip(indices, 0, len(car_df) - 1)
 
-                if 'Speed' in car_df.columns:
-                    track_speed = car_df['Speed'].iloc[indices].values.astype(np.float32)
-                if 'Throttle' in car_df.columns:
-                    track_throttle = car_df['Throttle'].iloc[indices].values.astype(np.float32)
-                if 'Brake' in car_df.columns:
-                    track_brake = car_df['Brake'].iloc[indices].values.astype(np.float32)
+                if "Speed" in car_df.columns:
+                    track_speed = car_df["Speed"].iloc[indices].values.astype(np.float32)
+                if "Throttle" in car_df.columns:
+                    track_throttle = car_df["Throttle"].iloc[indices].values.astype(np.float32)
+                if "Brake" in car_df.columns:
+                    track_brake = car_df["Brake"].iloc[indices].values.astype(np.float32)
             except Exception:
                 pass  # Skip if sampling fails
 
@@ -358,7 +387,9 @@ class LightTelemetryBuilder:
         track_dist_m = (track_dist / 10.0).astype(np.float32)
         lap_distance_m = lap_distance / 10.0
 
-        logger.info(f"    ✓ Track from {driver} lap {best_lap} ({lap_duration:.1f}s): {len(track_x)} points, {lap_distance_m:.0f}m")
+        logger.info(
+            f"    ✓ Track from {driver} lap {best_lap} ({lap_duration:.1f}s): {len(track_x)} points, {lap_distance_m:.0f}m"
+        )
 
         # Extract pit lane from winner's pit windows
         pit_x, pit_y = None, None
@@ -376,19 +407,17 @@ class LightTelemetryBuilder:
             # Expand window to 1 minute before and after
             expand_time = 60.0
             expanded_pit = telemetry.filter(
-                (pl.col('session_time') >= pit_in - expand_time) &
-                (pl.col('session_time') <= pit_out + expand_time)
-            ).sort('session_time')
+                (pl.col("session_time") >= pit_in - expand_time)
+                & (pl.col("session_time") <= pit_out + expand_time)
+            ).sort("session_time")
 
             if len(expanded_pit) > 10:
-                pit_x_raw = expanded_pit['x'].to_numpy().astype(np.float32)
-                pit_y_raw = expanded_pit['y'].to_numpy().astype(np.float32)
+                pit_x_raw = expanded_pit["x"].to_numpy().astype(np.float32)
+                pit_y_raw = expanded_pit["y"].to_numpy().astype(np.float32)
 
                 # Create temporary TrackGeometry for projection
                 temp_track = TrackGeometry(
-                    x=track_x, y=track_y,
-                    distance=track_dist_m,
-                    lap_distance=lap_distance_m
+                    x=track_x, y=track_y, distance=track_dist_m, lap_distance=lap_distance_m
                 )
 
                 # Project pit points onto track
@@ -396,7 +425,7 @@ class LightTelemetryBuilder:
                 pit_dist_to_track = temp_track.distance_to_track(pit_x_raw, pit_y_raw)
 
                 # Find pit start/end indices
-                expanded_times = expanded_pit['session_time'].to_numpy()
+                expanded_times = expanded_pit["session_time"].to_numpy()
                 is_pit = (expanded_times >= pit_in) & (expanded_times < pit_out)
                 pit_indices = np.where(is_pit)[0]
 
@@ -409,19 +438,21 @@ class LightTelemetryBuilder:
                     on_track_mask = pit_dist_to_track < threshold_dm
 
                     # Entry: last point before pit_start that's on track
-                    before_pit = np.where(on_track_mask[:pit_start_idx + 1])[0]
+                    before_pit = np.where(on_track_mask[: pit_start_idx + 1])[0]
                     entry_idx = before_pit[-1] if len(before_pit) > 0 else 0
 
                     # Exit: first point after pit_end that's on track
                     after_pit = np.where(on_track_mask[pit_end_idx:])[0]
-                    exit_idx = pit_end_idx + after_pit[0] if len(after_pit) > 0 else len(pit_x_raw) - 1
+                    exit_idx = (
+                        pit_end_idx + after_pit[0] if len(after_pit) > 0 else len(pit_x_raw) - 1
+                    )
 
                     pit_entry_dist = float(pit_track_dist[entry_idx])
                     pit_exit_dist = float(pit_track_dist[exit_idx])
 
                     # Trim pit lane
-                    pit_x_trimmed = pit_x_raw[entry_idx:exit_idx + 1]
-                    pit_y_trimmed = pit_y_raw[entry_idx:exit_idx + 1]
+                    pit_x_trimmed = pit_x_raw[entry_idx : exit_idx + 1]
+                    pit_y_trimmed = pit_y_raw[entry_idx : exit_idx + 1]
 
                     # Decimate pit points (minimum 0.5m spacing)
                     if len(pit_x_trimmed) > 2:
@@ -453,7 +484,9 @@ class LightTelemetryBuilder:
                     pit_distance = (np.cumsum(pit_distances) / 10.0).astype(np.float32)  # meters
                     pit_length = float(pit_distance[-1])
 
-                    logger.info(f"    ✓ Pit lane from {driver}: {len(pit_x)} points, {pit_length:.0f}m (entry={pit_entry_dist:.0f}m, exit={pit_exit_dist:.0f}m)")
+                    logger.info(
+                        f"    ✓ Pit lane from {driver}: {len(pit_x)} points, {pit_length:.0f}m (entry={pit_entry_dist:.0f}m, exit={pit_exit_dist:.0f}m)"
+                    )
 
         # Return TrackData
         return TrackData(
@@ -471,5 +504,5 @@ class LightTelemetryBuilder:
             marshal_sectors=[],  # Not extracted in light mode
             speed=track_speed,
             throttle=track_throttle,
-            brake=track_brake
+            brake=track_brake,
         )

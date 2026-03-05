@@ -13,6 +13,7 @@ Interval calculation:
 """
 
 from typing import Dict, List, Tuple
+
 import numpy as np
 import polars as pl
 
@@ -51,7 +52,11 @@ class OrderBuilder:
 
             cols = ["session_time", "race_distance"]
             renames = {"race_distance": f"{driver}_dist"}
-            status_col = "status" if "status" in tel.columns else "race_status" if "race_status" in tel.columns else None
+            status_col = (
+                "status"
+                if "status" in tel.columns
+                else "race_status" if "race_status" in tel.columns else None
+            )
             if status_col:
                 cols.append(status_col)
                 renames[status_col] = f"{driver}_status"
@@ -71,7 +76,11 @@ class OrderBuilder:
         # Used for ranking among finished drivers
         finish_info = {}  # driver -> (laps, finish_time)
         for driver, tel in telemetry.items():
-            status_col = "status" if "status" in tel.columns else "race_status" if "race_status" in tel.columns else None
+            status_col = (
+                "status"
+                if "status" in tel.columns
+                else "race_status" if "race_status" in tel.columns else None
+            )
             if status_col is None:
                 continue
             finished_rows = tel.filter(tel[status_col] == "Finished")
@@ -82,9 +91,12 @@ class OrderBuilder:
                 finish_info[driver] = (laps, finish_time)
 
         # Build unified timeline with all joins at once using lazy evaluation
-        all_times = pl.concat([
-            df.select("session_time") for df in driver_dfs.values()
-        ]).unique().sort("session_time").lazy()
+        all_times = (
+            pl.concat([df.select("session_time") for df in driver_dfs.values()])
+            .unique()
+            .sort("session_time")
+            .lazy()
+        )
 
         # Join all driver data
         for driver in driver_list:
@@ -138,20 +150,32 @@ class OrderBuilder:
         # 4. Same laps + both racing: higher race_distance = better
         pos_exprs = []
         for driver in driver_list:
-            ahead_count = pl.sum_horizontal([
-                (
-                    (pl.col(f"{other}_cur_lap") > pl.col(f"{driver}_cur_lap")) |
-                    ((pl.col(f"{other}_cur_lap") == pl.col(f"{driver}_cur_lap")) &
-                     pl.col(f"{other}_fin") & (~pl.col(f"{driver}_fin"))) |
-                    ((pl.col(f"{other}_cur_lap") == pl.col(f"{driver}_cur_lap")) &
-                     pl.col(f"{other}_fin") & pl.col(f"{driver}_fin") &
-                     (pl.col(f"{other}_ftime") < pl.col(f"{driver}_ftime"))) |
-                    ((pl.col(f"{other}_cur_lap") == pl.col(f"{driver}_cur_lap")) &
-                     (~pl.col(f"{other}_fin")) & (~pl.col(f"{driver}_fin")) &
-                     (pl.col(f"{other}_dist") > pl.col(f"{driver}_dist")))
-                ).cast(pl.UInt8)
-                for other in driver_list if other != driver
-            ])
+            ahead_count = pl.sum_horizontal(
+                [
+                    (
+                        (pl.col(f"{other}_cur_lap") > pl.col(f"{driver}_cur_lap"))
+                        | (
+                            (pl.col(f"{other}_cur_lap") == pl.col(f"{driver}_cur_lap"))
+                            & pl.col(f"{other}_fin")
+                            & (~pl.col(f"{driver}_fin"))
+                        )
+                        | (
+                            (pl.col(f"{other}_cur_lap") == pl.col(f"{driver}_cur_lap"))
+                            & pl.col(f"{other}_fin")
+                            & pl.col(f"{driver}_fin")
+                            & (pl.col(f"{other}_ftime") < pl.col(f"{driver}_ftime"))
+                        )
+                        | (
+                            (pl.col(f"{other}_cur_lap") == pl.col(f"{driver}_cur_lap"))
+                            & (~pl.col(f"{other}_fin"))
+                            & (~pl.col(f"{driver}_fin"))
+                            & (pl.col(f"{other}_dist") > pl.col(f"{driver}_dist"))
+                        )
+                    ).cast(pl.UInt8)
+                    for other in driver_list
+                    if other != driver
+                ]
+            )
             pos_exprs.append(
                 pl.when(pl.col(f"{driver}_dist").is_null())
                 .then(None)
@@ -196,12 +220,14 @@ class OrderBuilder:
 
         drivers = list(telemetry.keys())
         required_cols = ["position", "race_distance", "session_time"]
-        valid_drivers = [d for d in drivers
-                         if all(c in telemetry[d].columns for c in required_cols)]
+        valid_drivers = [
+            d for d in drivers if all(c in telemetry[d].columns for c in required_cols)
+        ]
 
         if len(valid_drivers) < 2:
-            return {d: tel.with_columns(pl.lit(0.0).alias("interval"))
-                    for d, tel in telemetry.items()}
+            return {
+                d: tel.with_columns(pl.lit(0.0).alias("interval")) for d, tel in telemetry.items()
+            }
 
         # Map drivers to indices
         driver_to_idx = {d: i for i, d in enumerate(valid_drivers)}
@@ -215,11 +241,12 @@ class OrderBuilder:
         interp_lazy = []
         for driver in valid_drivers:
             lf = (
-                telemetry[driver].lazy()
+                telemetry[driver]
+                .lazy()
                 .filter(
-                    pl.col("race_distance").is_not_null() &
-                    (pl.col("race_distance") > 0) &
-                    (pl.col("lap_number") >= 1)  # Only racing data, not formation lap
+                    pl.col("race_distance").is_not_null()
+                    & (pl.col("race_distance") > 0)
+                    & (pl.col("lap_number") >= 1)  # Only racing data, not formation lap
                 )
                 .select(["race_distance", "session_time"])
                 .sort("race_distance")
@@ -235,24 +262,23 @@ class OrderBuilder:
             if len(driver_data) > 0:
                 driver_interp[driver_to_idx[driver]] = (
                     driver_data["race_distance"].to_numpy(),
-                    driver_data["session_time"].to_numpy()
+                    driver_data["session_time"].to_numpy(),
                 )
 
         # Build unified timeline and position matrix using Polars lazy
-        stacked_lazy = pl.concat([
-            telemetry[d].lazy()
-            .select(["session_time", "position"])
-            .with_columns(pl.lit(driver_to_idx[d]).cast(pl.Int16).alias("driver_idx"))
-            for d in valid_drivers
-        ])
+        stacked_lazy = pl.concat(
+            [
+                telemetry[d]
+                .lazy()
+                .select(["session_time", "position"])
+                .with_columns(pl.lit(driver_to_idx[d]).cast(pl.Int16).alias("driver_idx"))
+                for d in valid_drivers
+            ]
+        )
 
         # Get unified times
         unified_times = (
-            stacked_lazy
-            .select("session_time")
-            .unique()
-            .sort("session_time")
-            .collect()
+            stacked_lazy.select("session_time").unique().sort("session_time").collect()
         )["session_time"].to_numpy()
         n_times = len(unified_times)
 
@@ -266,7 +292,7 @@ class OrderBuilder:
         stacked_driver_idx = stacked["driver_idx"].to_numpy()
 
         # Vectorized time index lookup
-        time_indices = np.searchsorted(unified_times, stacked_times, side='right') - 1
+        time_indices = np.searchsorted(unified_times, stacked_times, side="right") - 1
         time_indices = np.clip(time_indices, 0, n_times - 1)
 
         # Vectorized position matrix population (avoiding Python loop)
@@ -290,7 +316,6 @@ class OrderBuilder:
         # Calculate intervals for all drivers using Polars + numpy hybrid
         result = {}
         for driver in valid_drivers:
-            driver_idx = driver_to_idx[driver]
             tel = telemetry[driver]
 
             # Extract arrays once
@@ -302,7 +327,7 @@ class OrderBuilder:
             intervals = np.zeros(n_rows, dtype=np.float64)
 
             # Vectorized time index lookup
-            time_indices = np.searchsorted(unified_times, session_times, side='right') - 1
+            time_indices = np.searchsorted(unified_times, session_times, side="right") - 1
             time_indices = np.clip(time_indices, 0, n_times - 1)
 
             # Vectorized position and driver_ahead lookup
@@ -337,14 +362,14 @@ class OrderBuilder:
         # Handle invalid drivers
         for driver in drivers:
             if driver not in result:
-                result[driver] = telemetry[driver].with_columns(
-                    pl.lit(0.0).alias("interval")
-                )
+                result[driver] = telemetry[driver].with_columns(pl.lit(0.0).alias("interval"))
 
         return result
 
     @staticmethod
-    def get_order_at_time(telemetry: Dict[str, pl.DataFrame], session_time: float) -> List[Tuple[int, str, float]]:
+    def get_order_at_time(
+        telemetry: Dict[str, pl.DataFrame], session_time: float
+    ) -> List[Tuple[int, str, float]]:
         """
         Get driver standings at a specific time.
 
@@ -376,8 +401,9 @@ class OrderBuilder:
         return sorted(standings, key=lambda x: x[0])
 
     @staticmethod
-    def get_order_at_lap(telemetry: Dict[str, pl.DataFrame], lap: int,
-                         track_length: float) -> List[Tuple[int, str, float]]:
+    def get_order_at_lap(
+        telemetry: Dict[str, pl.DataFrame], lap: int, track_length: float
+    ) -> List[Tuple[int, str, float]]:
         """
         Get driver standings when they completed a specific lap.
 
@@ -405,30 +431,32 @@ class OrderBuilder:
             if len(completed) > 0:
                 # Driver completed lap - use time they crossed
                 first_cross = completed.head(1).to_dicts()[0]
-                standings.append((
-                    first_cross["session_time"],  # Sort key: time of crossing
-                    driver,
-                    float(first_cross["race_distance"]),
-                    True  # completed
-                ))
+                standings.append(
+                    (
+                        first_cross["session_time"],  # Sort key: time of crossing
+                        driver,
+                        float(first_cross["race_distance"]),
+                        True,  # completed
+                    )
+                )
             else:
                 # DNF - use max race_distance
                 max_dist = tel["race_distance"].max()
                 if max_dist is not None:
-                    standings.append((
-                        float('inf'),  # DNF sorts last
-                        driver,
-                        float(max_dist),
-                        False  # did not complete
-                    ))
+                    standings.append(
+                        (
+                            float("inf"),  # DNF sorts last
+                            driver,
+                            float(max_dist),
+                            False,  # did not complete
+                        )
+                    )
 
         # Sort: completed drivers by crossing time, then DNF by distance (descending)
         completed = [(d, dist) for _, d, dist, c in standings if c]
         dnf = [(d, dist) for _, d, dist, c in standings if not c]
 
-        completed.sort(key=lambda x: next(
-            t for t, d, _, c in standings if d == x[0] and c
-        ))
+        completed.sort(key=lambda x: next(t for t, d, _, c in standings if d == x[0] and c))
         dnf.sort(key=lambda x: -x[1])  # Higher distance = better position
 
         # Assign positions

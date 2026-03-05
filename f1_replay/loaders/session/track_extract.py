@@ -6,15 +6,19 @@ Functions operate on telemetry DataFrames and return TrackData.
 """
 
 from typing import Dict, Optional, Tuple
+
 import numpy as np
 import polars as pl
 
-from f1_replay.log import logger
 from f1_replay.loaders.session.telemetry import TrackData
+from f1_replay.log import logger
 
 
-def extract_track_and_pit(telemetry: Dict[str, pl.DataFrame], winner: Optional[str],
-                          status_data_all: Optional[Dict[str, dict]] = None) -> Tuple[Optional[TrackData], Optional[dict]]:
+def extract_track_and_pit(
+    telemetry: Dict[str, pl.DataFrame],
+    winner: Optional[str],
+    status_data_all: Optional[Dict[str, dict]] = None,
+) -> Tuple[Optional[TrackData], Optional[dict]]:
     """
     Extract track and pit lane geometry from race winner's telemetry.
 
@@ -48,7 +52,7 @@ def extract_track_and_pit(telemetry: Dict[str, pl.DataFrame], winner: Optional[s
     logger.info(f"  → Extracting track/pit from {driver}")
 
     # Extract track from racing laps (lap_number >= 1)
-    racing = tel.filter(pl.col('lap_number') >= 1)
+    racing = tel.filter(pl.col("lap_number") >= 1)
     if len(racing) == 0:
         logger.warning("  ⚠ No racing telemetry found")
         return None, None
@@ -57,10 +61,10 @@ def extract_track_and_pit(telemetry: Dict[str, pl.DataFrame], winner: Optional[s
     pit_laps = set()
     if status_data_all and driver in status_data_all:
         driver_status = status_data_all[driver]
-        driver_pit_windows = driver_status.get('pit_windows', [])
+        driver_pit_windows = driver_status.get("pit_windows", [])
         if driver_pit_windows:
-            session_times = tel['session_time'].to_numpy()
-            lap_numbers = tel['lap_number'].to_numpy()
+            session_times = tel["session_time"].to_numpy()
+            lap_numbers = tel["lap_number"].to_numpy()
             for pit_in, pit_out in driver_pit_windows:
                 pit_mask = (session_times >= pit_in) & (session_times < pit_out)
                 pit_laps.update(lap_numbers[pit_mask].tolist())
@@ -71,44 +75,62 @@ def extract_track_and_pit(telemetry: Dict[str, pl.DataFrame], winner: Optional[s
     exclude_laps = pit_laps | pit_out_laps | {1}
 
     # Find fastest lap by calculating lap duration from telemetry
-    lap_times = racing.group_by('lap_number').agg([
-        pl.col('session_time').min().alias('start_time'),
-        pl.col('session_time').max().alias('end_time'),
-        pl.len().alias('n_points')
-    ]).with_columns(
-        (pl.col('end_time') - pl.col('start_time')).alias('lap_duration')
-    ).filter(
-        (pl.col('n_points') > 100) &  # Must have reasonable telemetry coverage
-        (~pl.col('lap_number').is_in(list(exclude_laps)))  # Exclude pit/out laps and lap 1
-    ).sort('lap_duration')
+    lap_times = (
+        racing.group_by("lap_number")
+        .agg(
+            [
+                pl.col("session_time").min().alias("start_time"),
+                pl.col("session_time").max().alias("end_time"),
+                pl.len().alias("n_points"),
+            ]
+        )
+        .with_columns((pl.col("end_time") - pl.col("start_time")).alias("lap_duration"))
+        .filter(
+            (pl.col("n_points") > 100)  # Must have reasonable telemetry coverage
+            & (~pl.col("lap_number").is_in(list(exclude_laps)))  # Exclude pit/out laps and lap 1
+        )
+        .sort("lap_duration")
+    )
 
     # Fallback: if no clean laps, try without excluding pit laps
     if len(lap_times) == 0:
         logger.warning("  ⚠ No clean laps, falling back to any racing lap")
-        lap_times = racing.group_by('lap_number').agg([
-            pl.col('session_time').min().alias('start_time'),
-            pl.col('session_time').max().alias('end_time'),
-            pl.len().alias('n_points')
-        ]).with_columns(
-            (pl.col('end_time') - pl.col('start_time')).alias('lap_duration')
-        ).filter(pl.col('n_points') > 100).sort('lap_duration')
+        lap_times = (
+            racing.group_by("lap_number")
+            .agg(
+                [
+                    pl.col("session_time").min().alias("start_time"),
+                    pl.col("session_time").max().alias("end_time"),
+                    pl.len().alias("n_points"),
+                ]
+            )
+            .with_columns((pl.col("end_time") - pl.col("start_time")).alias("lap_duration"))
+            .filter(pl.col("n_points") > 100)
+            .sort("lap_duration")
+        )
 
     if len(lap_times) == 0:
         logger.warning("  ⚠ No valid laps found")
         return None, None
 
-    best_lap = lap_times['lap_number'][0]
-    lap_duration = lap_times['lap_duration'][0]
-    lap_tel = racing.filter(pl.col('lap_number') == best_lap)
+    best_lap = lap_times["lap_number"][0]
+    lap_duration = lap_times["lap_duration"][0]
+    lap_tel = racing.filter(pl.col("lap_number") == best_lap)
 
-    track_x = lap_tel['x'].to_numpy().astype(np.float32)
-    track_y = lap_tel['y'].to_numpy().astype(np.float32)
-    track_z = lap_tel['z'].to_numpy().astype(np.float32) if 'z' in lap_tel.columns else None
+    track_x = lap_tel["x"].to_numpy().astype(np.float32)
+    track_y = lap_tel["y"].to_numpy().astype(np.float32)
+    track_z = lap_tel["z"].to_numpy().astype(np.float32) if "z" in lap_tel.columns else None
 
     # Extract speed, throttle, brake from the reference lap
-    track_speed = lap_tel['speed'].to_numpy().astype(np.float32) if 'speed' in lap_tel.columns else None
-    track_throttle = lap_tel['throttle'].to_numpy().astype(np.float32) if 'throttle' in lap_tel.columns else None
-    track_brake = lap_tel['brake'].to_numpy().astype(np.float32) if 'brake' in lap_tel.columns else None
+    track_speed = (
+        lap_tel["speed"].to_numpy().astype(np.float32) if "speed" in lap_tel.columns else None
+    )
+    track_throttle = (
+        lap_tel["throttle"].to_numpy().astype(np.float32) if "throttle" in lap_tel.columns else None
+    )
+    track_brake = (
+        lap_tel["brake"].to_numpy().astype(np.float32) if "brake" in lap_tel.columns else None
+    )
 
     # Smooth wrap-around: blend last N points toward first point values
     def smooth_wrap(arr, n_blend=10):
@@ -137,7 +159,9 @@ def extract_track_and_pit(telemetry: Dict[str, pl.DataFrame], winner: Optional[s
     track_dist_m = (track_dist / 10.0).astype(np.float32)
     lap_distance_m = lap_distance / 10.0
 
-    logger.info(f"    ✓ Track from lap {best_lap} ({lap_duration:.1f}s): {len(track_x)} points, {lap_distance_m:.0f}m")
+    logger.info(
+        f"    ✓ Track from lap {best_lap} ({lap_duration:.1f}s): {len(track_x)} points, {lap_distance_m:.0f}m"
+    )
 
     # Extract pit lane - find a driver who actually pitted
     # Race winner may not have pitted, so search all drivers for pit data
@@ -149,10 +173,10 @@ def extract_track_and_pit(telemetry: Dict[str, pl.DataFrame], winner: Optional[s
     if status_data_all:
         for d, d_tel in telemetry.items():
             d_status = status_data_all.get(d, {})
-            d_pit_windows = d_status.get('pit_windows', [])
+            d_pit_windows = d_status.get("pit_windows", [])
             if d_pit_windows and len(d_pit_windows) > 0:
                 # Use pit_windows to filter telemetry to pit times
-                session_times = d_tel['session_time'].to_numpy()
+                session_times = d_tel["session_time"].to_numpy()
                 pit_mask = np.zeros(len(session_times), dtype=bool)
                 for pit_in, pit_out in d_pit_windows:
                     pit_mask |= (session_times >= pit_in) & (session_times < pit_out)
@@ -171,32 +195,30 @@ def extract_track_and_pit(telemetry: Dict[str, pl.DataFrame], winner: Optional[s
     if pit_tel is not None and len(pit_tel) > 0:
         tel_for_pit = telemetry[pit_driver]  # Use the driver who pitted
         # Get first continuous pit stint
-        pit_times = pit_tel['session_time'].to_numpy()
+        pit_times = pit_tel["session_time"].to_numpy()
         time_gaps = np.diff(pit_times)
         # Find where gap > 60s (new pit stop)
         gap_indices = np.where(time_gaps > 60)[0]
         end_idx = gap_indices[0] + 1 if len(gap_indices) > 0 else len(pit_tel)
 
         first_pit = pit_tel.head(end_idx)
-        pit_start_time = first_pit['session_time'][0]
-        pit_end_time = first_pit['session_time'][-1]
+        pit_start_time = first_pit["session_time"][0]
+        pit_end_time = first_pit["session_time"][-1]
 
         # Expand window to 1 minute before and after pit stint
         expand_time = 60.0  # seconds
         expanded_pit = tel_for_pit.filter(
-            (pl.col('session_time') >= pit_start_time - expand_time) &
-            (pl.col('session_time') <= pit_end_time + expand_time)
-        ).sort('session_time')
+            (pl.col("session_time") >= pit_start_time - expand_time)
+            & (pl.col("session_time") <= pit_end_time + expand_time)
+        ).sort("session_time")
 
-        pit_x_raw = expanded_pit['x'].to_numpy().astype(np.float32)
-        pit_y_raw = expanded_pit['y'].to_numpy().astype(np.float32)
+        pit_x_raw = expanded_pit["x"].to_numpy().astype(np.float32)
+        pit_y_raw = expanded_pit["y"].to_numpy().astype(np.float32)
 
         if len(pit_x_raw) > 1:
             # Create temporary TrackGeometry for projection
             temp_track = TrackGeometry(
-                x=track_x, y=track_y,
-                distance=track_dist_m,
-                lap_distance=lap_distance_m
+                x=track_x, y=track_y, distance=track_dist_m, lap_distance=lap_distance_m
             )
 
             # Project all points onto track
@@ -205,7 +227,7 @@ def extract_track_and_pit(telemetry: Dict[str, pl.DataFrame], winner: Optional[s
 
             # Find where pit status starts/ends in the expanded window (vectorized)
             # Use pit_windows for reliable pit detection
-            expanded_times = expanded_pit['session_time'].to_numpy()
+            expanded_times = expanded_pit["session_time"].to_numpy()
             is_pit_status = np.zeros(len(expanded_times), dtype=bool)
             for pit_in, pit_out in pit_windows_for_extraction:
                 is_pit_status |= (expanded_times >= pit_in) & (expanded_times < pit_out)
@@ -224,19 +246,23 @@ def extract_track_and_pit(telemetry: Dict[str, pl.DataFrame], winner: Optional[s
 
             # Vectorized: find entry point (last point before pit_start that's on track)
             on_track_mask = pit_dist_to_track < threshold_dm
-            before_pit_on_track = np.where(on_track_mask[:pit_start_idx + 1])[0]
+            before_pit_on_track = np.where(on_track_mask[: pit_start_idx + 1])[0]
             entry_idx = before_pit_on_track[-1] if len(before_pit_on_track) > 0 else 0
 
             # Vectorized: find exit point (first point after pit_end that's on track)
             after_pit_on_track = np.where(on_track_mask[pit_end_idx:])[0]
-            exit_idx = pit_end_idx + after_pit_on_track[0] if len(after_pit_on_track) > 0 else len(pit_x_raw) - 1
+            exit_idx = (
+                pit_end_idx + after_pit_on_track[0]
+                if len(after_pit_on_track) > 0
+                else len(pit_x_raw) - 1
+            )
 
             pit_entry_dist = float(pit_track_dist[entry_idx])
             pit_exit_dist = float(pit_track_dist[exit_idx])
 
             # Trim pit lane to entry/exit merge points
-            pit_x_trimmed = pit_x_raw[entry_idx:exit_idx + 1]
-            pit_y_trimmed = pit_y_raw[entry_idx:exit_idx + 1]
+            pit_x_trimmed = pit_x_raw[entry_idx : exit_idx + 1]
+            pit_y_trimmed = pit_y_raw[entry_idx : exit_idx + 1]
 
             # Remove duplicate/close points (minimum distance between consecutive points)
             min_dist_dm = 5.0  # 0.5m = 5 decimeters minimum spacing
@@ -274,18 +300,20 @@ def extract_track_and_pit(telemetry: Dict[str, pl.DataFrame], winner: Optional[s
             pit_distance = (np.cumsum(pit_distances) / 10.0).astype(np.float32)  # meters
             pit_length = float(pit_distance[-1])
 
-            logger.info(f"    ✓ Pit lane from {pit_driver}: {len(pit_x)} points, {pit_length:.0f}m (entry={pit_entry_dist:.0f}m, exit={pit_exit_dist:.0f}m)")
+            logger.info(
+                f"    ✓ Pit lane from {pit_driver}: {len(pit_x)} points, {pit_length:.0f}m (entry={pit_entry_dist:.0f}m, exit={pit_exit_dist:.0f}m)"
+            )
 
     # Detect warmup start from winner's telemetry (using wrap-based approach)
     warmup_start_time = None
 
     tel = telemetry.get(driver)
-    if tel is not None and 'lap_number' in tel.columns and 'session_time' in tel.columns:
-        lap_numbers = tel['lap_number'].to_numpy()
-        session_times = tel['session_time'].to_numpy()
-        px = tel['x'].to_numpy().astype(np.float32)
-        py = tel['y'].to_numpy().astype(np.float32)
-        pz = tel['z'].to_numpy().astype(np.float32) if 'z' in tel.columns else np.zeros(len(tel))
+    if tel is not None and "lap_number" in tel.columns and "session_time" in tel.columns:
+        lap_numbers = tel["lap_number"].to_numpy()
+        session_times = tel["session_time"].to_numpy()
+        px = tel["x"].to_numpy().astype(np.float32)
+        py = tel["y"].to_numpy().astype(np.float32)
+        pz = tel["z"].to_numpy().astype(np.float32) if "z" in tel.columns else np.zeros(len(tel))
 
         # Find race start index: when FastF1 lap_number changes from 0 to 1
         race_start_mask = lap_numbers >= 1
@@ -320,8 +348,10 @@ def extract_track_and_pit(telemetry: Dict[str, pl.DataFrame], winner: Optional[s
                                 warmup_start_time = float(session_times[j])
                                 grid_duration = session_times[j] - session_times[grid_start]
                                 warmup_duration = race_start_time - warmup_start_time
-                                logger.info(f"    ✓ Warmup detection: Grid {grid_duration:.1f}s, "
-                                           f"starts at {warmup_start_time:.1f}s, duration: {warmup_duration:.1f}s")
+                                logger.info(
+                                    f"    ✓ Warmup detection: Grid {grid_duration:.1f}s, "
+                                    f"starts at {warmup_start_time:.1f}s, duration: {warmup_duration:.1f}s"
+                                )
                                 found_grid = True
                                 break
 
@@ -329,28 +359,28 @@ def extract_track_and_pit(telemetry: Dict[str, pl.DataFrame], winner: Optional[s
                             break
 
             if not found_grid:
-                logger.warning(f"    ⚠ Could not detect warmup start (no grid position found)")
+                logger.warning("    ⚠ Could not detect warmup start (no grid position found)")
 
     # Build session timing dict
-    session_timing = {
-        'warmup_start_time': warmup_start_time
-    } if warmup_start_time is not None else None
+    session_timing = (
+        {"warmup_start_time": warmup_start_time} if warmup_start_time is not None else None
+    )
 
     track_data = TrackData(
         track_x=track_x,
         track_y=track_y,
         track_distance=track_dist,  # Keep in decimeters, dataloader converts
-        lap_distance=lap_distance,   # Keep in decimeters
+        lap_distance=lap_distance,  # Keep in decimeters
         pit_x=pit_x,
         pit_y=pit_y,
-        pit_distance=pit_distance,   # In meters
-        pit_length=pit_length,       # In meters
+        pit_distance=pit_distance,  # In meters
+        pit_length=pit_length,  # In meters
         pit_entry_distance=pit_entry_dist,  # In meters
-        pit_exit_distance=pit_exit_dist,    # In meters
+        pit_exit_distance=pit_exit_dist,  # In meters
         speed=track_speed,
         throttle=track_throttle,
         brake=track_brake,
-        track_z=track_z
+        track_z=track_z,
     )
 
     return track_data, session_timing
@@ -372,12 +402,12 @@ def extract_track_from_driver(f1_session, driver: str) -> Optional[TrackData]:
     """
     from f1_replay.loaders.session.telemetry import TelemetryBuilder
 
-    pos_data = getattr(f1_session, 'pos_data', None)
-    car_data = getattr(f1_session, 'car_data', None)
-    laps = getattr(f1_session, 'laps', None)
+    pos_data = getattr(f1_session, "pos_data", None)
+    car_data = getattr(f1_session, "car_data", None)
+    laps = getattr(f1_session, "laps", None)
 
     if pos_data is None:
-        logger.warning(f"  ⚠ No position data available")
+        logger.warning("  ⚠ No position data available")
         return None
 
     # Build driver map and find driver's number
@@ -403,13 +433,13 @@ def extract_track_from_driver(f1_session, driver: str) -> Optional[TrackData]:
 
     # Get driver's laps
     driver_laps = None
-    if laps is not None and 'Driver' in laps.columns:
-        driver_laps = laps[laps['Driver'] == driver]
+    if laps is not None and "Driver" in laps.columns:
+        driver_laps = laps[laps["Driver"] == driver]
 
     # Get race length
     race_length = 0
-    if laps is not None and len(laps) > 0 and 'LapNumber' in laps.columns:
-        race_length = int(laps['LapNumber'].max())
+    if laps is not None and len(laps) > 0 and "LapNumber" in laps.columns:
+        race_length = int(laps["LapNumber"].max())
 
     # Build telemetry for this driver
     tel, _ = TelemetryBuilder._build_driver_telemetry(pos_df, car_df, driver_laps, race_length)
@@ -443,7 +473,7 @@ def add_marshal_sectors(f1_session, track_data: TrackData) -> TrackData:
     """
     try:
         circuit_info = f1_session.get_circuit_info()
-        if circuit_info is None or not hasattr(circuit_info, 'marshal_sectors'):
+        if circuit_info is None or not hasattr(circuit_info, "marshal_sectors"):
             return track_data
 
         marshal_df = circuit_info.marshal_sectors
@@ -458,14 +488,16 @@ def add_marshal_sectors(f1_session, track_data: TrackData) -> TrackData:
 
         # Marshal sectors have X, Y coordinates (in decimeters)
         # Vectorized: project all sector boundaries onto track at once
-        sector_nums = marshal_df['Number'].values.astype(np.int32)
-        sector_x = marshal_df['X'].values.astype(np.float32)
-        sector_y = marshal_df['Y'].values.astype(np.float32)
+        sector_nums = marshal_df["Number"].values.astype(np.int32)
+        sector_x = marshal_df["X"].values.astype(np.float32)
+        sector_y = marshal_df["Y"].values.astype(np.float32)
 
         # Broadcasting: compute distances from all sectors to all track points
         # sector_x[:, None] shape: (n_sectors, 1), track_x[None, :] shape: (1, n_track)
         # Result shape: (n_sectors, n_track)
-        dist_sq = (sector_x[:, None] - track_x[None, :])**2 + (sector_y[:, None] - track_y[None, :])**2
+        dist_sq = (sector_x[:, None] - track_x[None, :]) ** 2 + (
+            sector_y[:, None] - track_y[None, :]
+        ) ** 2
         closest_indices = np.argmin(dist_sq, axis=1)  # Shape: (n_sectors,)
 
         # Get track distances at closest points (convert to meters)
@@ -508,7 +540,7 @@ def add_marshal_sectors(f1_session, track_data: TrackData) -> TrackData:
             speed=track_data.speed,
             throttle=track_data.throttle,
             brake=track_data.brake,
-            track_z=track_data.track_z
+            track_z=track_data.track_z,
         )
 
     except Exception as e:

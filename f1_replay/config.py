@@ -10,7 +10,6 @@ Environment variable: F1_REPLAY_CACHE_DIR
 import json
 import os
 from pathlib import Path
-from typing import Optional
 
 # Default values
 DEFAULT_CACHE_DIR = "race_data"
@@ -80,7 +79,7 @@ def get_config() -> dict:
     return {
         "cache_dir": get_cache_dir(),
         "config_file": str(CONFIG_FILE),
-        "source": _get_cache_dir_source()
+        "source": _get_cache_dir_source(),
     }
 
 

@@ -1,13 +1,11 @@
 """Tests for JSON serialization utilities."""
 
-import math
 from datetime import timedelta
 
 import numpy as np
 import polars as pl
-import pytest
 
-from f1_replay.api.serializers import to_json_safe, serialize_telemetry
+from f1_replay.api.serializers import serialize_telemetry, to_json_safe
 
 
 class TestToJsonSafe:

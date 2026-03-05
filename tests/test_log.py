@@ -1,7 +1,6 @@
 """Tests for logging module."""
 
 import logging
-import pytest
 
 from f1_replay.log import logger, setup_logging
 

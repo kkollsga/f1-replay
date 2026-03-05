@@ -1,9 +1,8 @@
 """Tests for configuration priority (env > config file > default)."""
 
 import json
-import pytest
 
-from f1_replay.config import get_cache_dir, set_cache_dir, DEFAULT_CACHE_DIR, _get_cache_dir_source
+from f1_replay.config import DEFAULT_CACHE_DIR, _get_cache_dir_source, get_cache_dir, set_cache_dir
 
 
 class TestGetCacheDir:

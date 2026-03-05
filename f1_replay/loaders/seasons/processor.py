@@ -4,11 +4,11 @@ Seasons Processor - TIER 1 Processing
 Builds seasons catalog as List[EventInfo] from FastF1 API.
 """
 
-from typing import Optional, Dict, List
-from f1_replay.models.event import EventInfo, SessionInfo, get_location_dir
+from typing import Dict, List, Optional
+
 from f1_replay.loaders.core.client import FastF1Client
 from f1_replay.log import logger
-
+from f1_replay.models.event import EventInfo, SessionInfo, get_location_dir
 
 # Type alias for seasons catalog
 SeasonsCatalog = Dict[int, List[EventInfo]]
@@ -17,8 +17,9 @@ SeasonsCatalog = Dict[int, List[EventInfo]]
 def extract_timezone_offset(date_str: str) -> str:
     """Extract timezone offset from ISO datetime string (e.g., '+02:00' from '2025-09-05T13:30:00+02:00')."""
     import re
+
     if date_str:
-        match = re.search(r'([+-]\d{2}:\d{2})$', date_str)
+        match = re.search(r"([+-]\d{2}:\d{2})$", date_str)
         if match:
             return match.group(1)
     return ""
@@ -85,37 +86,37 @@ class SeasonsProcessor:
 
         for _, row in schedule.iterrows():
             # Skip events without names
-            if not row.get('EventName'):
+            if not row.get("EventName"):
                 continue
 
-            event_format = str(row.get('EventFormat', 'conventional'))
+            event_format = str(row.get("EventFormat", "conventional"))
 
             # Get event dates (race date and first session date)
-            event_date = str(row.get('EventDate', '')).split(' ')[0]  # Race date
+            event_date = str(row.get("EventDate", "")).split(" ")[0]  # Race date
 
             # Get first session date (usually FP1 on Friday)
-            session1_date = row.get('Session1Date')
+            session1_date = row.get("Session1Date")
             event_start = ""
             if session1_date is not None:
                 try:
-                    event_start = str(session1_date).split(' ')[0][:10]  # YYYY-MM-DD
+                    event_start = str(session1_date).split(" ")[0][:10]  # YYYY-MM-DD
                 except (ValueError, TypeError, AttributeError):
                     pass
 
             # Extract sessions with full datetime from FastF1 schedule
             sessions = []
             for i in range(1, 6):  # Session1 through Session5
-                session_name = row.get(f'Session{i}')
-                session_date = row.get(f'Session{i}Date')
-                if session_name and str(session_name) not in ('nan', 'None'):
+                session_name = row.get(f"Session{i}")
+                session_date = row.get(f"Session{i}Date")
+                if session_name and str(session_name) not in ("nan", "None"):
                     # Convert datetime to ISO string
                     date_str = ""
                     if session_date is not None:
                         try:
                             date_str = str(session_date)
                             # Clean up pandas timestamp format if needed
-                            if 'T' not in date_str and ' ' in date_str:
-                                date_str = date_str.replace(' ', 'T')
+                            if "T" not in date_str and " " in date_str:
+                                date_str = date_str.replace(" ", "T")
                         except (ValueError, TypeError, AttributeError):
                             pass
                     sessions.append(SessionInfo(name=session_name, date=date_str))
@@ -129,17 +130,17 @@ class SeasonsProcessor:
                         break
 
             event = EventInfo(
-                name=row.get('EventName', ''),
-                official_name=row.get('OfficialEventName', ''),
-                circuit_name=row.get('Location', ''),
-                country=row.get('Country', ''),
+                name=row.get("EventName", ""),
+                official_name=row.get("OfficialEventName", ""),
+                circuit_name=row.get("Location", ""),
+                country=row.get("Country", ""),
                 year=year,
-                round_number=int(row.get('RoundNumber', 0)),
+                round_number=int(row.get("RoundNumber", 0)),
                 start_date=event_start,
                 end_date=event_date,
                 sessions=sessions,
                 timezone_offset=timezone,
-                format=event_format if event_format else 'conventional',
+                format=event_format if event_format else "conventional",
             )
             events.append(event)
 

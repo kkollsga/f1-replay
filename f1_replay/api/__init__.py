@@ -9,4 +9,4 @@ Provides optimized 3-tier API endpoints:
 
 from f1_replay.api.app import create_app
 
-__all__ = ['create_app']
+__all__ = ["create_app"]

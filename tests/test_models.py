@@ -1,7 +1,7 @@
 """Tests for F1DataMixin and frozen dataclasses."""
 
 import pytest
-from f1_replay.models.base import F1DataMixin
+
 from f1_replay.models.event import EventInfo, SessionInfo, get_location_dir
 
 
@@ -73,9 +73,14 @@ class TestGetLocationDir:
 
     def test_spaces_replaced(self):
         event = EventInfo(
-            name="Test GP", official_name="", circuit_name="Abu Dhabi",
-            country="UAE", year=2024, round_number=21,
-            start_date="", end_date="",
+            name="Test GP",
+            official_name="",
+            circuit_name="Abu Dhabi",
+            country="UAE",
+            year=2024,
+            round_number=21,
+            start_date="",
+            end_date="",
         )
         assert get_location_dir(event) == "21_Abu_Dhabi"
 

@@ -6,11 +6,18 @@ import pytest
 
 from f1_replay.models.event import EventInfo, SessionInfo
 from f1_replay.models.session import (
-    SessionData, SessionMetadata, EventsData, ResultsData, T0Info,
-    TrackStatusWithReport,
+    EventsData,
+    ResultsData,
+    SessionData,
+    SessionMetadata,
+    T0Info,
 )
 from f1_replay.models.weekend import (
-    F1Weekend, CircuitData, TrackGeometry, MarshalSector, Corner, PitLane,
+    CircuitData,
+    Corner,
+    F1Weekend,
+    MarshalSector,
+    TrackGeometry,
 )
 
 
@@ -53,12 +60,15 @@ def sample_track_geometry():
     lap_distance = float(dist[-1]) / 10.0  # meters
     dist_m = (dist / 10.0).astype(np.float32)
     return TrackGeometry(
-        x=x, y=y,
+        x=x,
+        y=y,
         distance=dist_m,
         lap_distance=lap_distance,
         marshal_sectors=[
             MarshalSector(number=1, start_distance=0.0, end_distance=lap_distance / 3),
-            MarshalSector(number=2, start_distance=lap_distance / 3, end_distance=2 * lap_distance / 3),
+            MarshalSector(
+                number=2, start_distance=lap_distance / 3, end_distance=2 * lap_distance / 3
+            ),
             MarshalSector(number=3, start_distance=2 * lap_distance / 3, end_distance=lap_distance),
         ],
     )
@@ -103,20 +113,22 @@ def sample_telemetry():
     drivers = ["VER", "NOR", "LEC"]
     telemetry = {}
     for i, drv in enumerate(drivers):
-        telemetry[drv] = pl.DataFrame({
-            "session_time": np.linspace(0, 100, 10).tolist(),
-            "x": np.random.default_rng(i).uniform(-1000, 1000, 10).tolist(),
-            "y": np.random.default_rng(i + 10).uniform(-1000, 1000, 10).tolist(),
-            "speed": np.random.default_rng(i + 20).uniform(50, 350, 10).tolist(),
-            "lap_number": [1] * 5 + [2] * 5,
-            "track_distance": np.linspace(0, 3337, 10).tolist(),
-            "race_distance": np.linspace(0, 6674, 10).tolist(),
-            "compound": ["SOFT"] * 10,
-            "tyre_life": list(range(1, 11)),
-            "status": ["Racing"] * 10,
-            "position": [i + 1] * 10,
-            "interval": [float(i)] * 10,
-        })
+        telemetry[drv] = pl.DataFrame(
+            {
+                "session_time": np.linspace(0, 100, 10).tolist(),
+                "x": np.random.default_rng(i).uniform(-1000, 1000, 10).tolist(),
+                "y": np.random.default_rng(i + 10).uniform(-1000, 1000, 10).tolist(),
+                "speed": np.random.default_rng(i + 20).uniform(50, 350, 10).tolist(),
+                "lap_number": [1] * 5 + [2] * 5,
+                "track_distance": np.linspace(0, 3337, 10).tolist(),
+                "race_distance": np.linspace(0, 6674, 10).tolist(),
+                "compound": ["SOFT"] * 10,
+                "tyre_life": list(range(1, 11)),
+                "status": ["Racing"] * 10,
+                "position": [i + 1] * 10,
+                "interval": [float(i)] * 10,
+            }
+        )
     return telemetry
 
 

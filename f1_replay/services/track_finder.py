@@ -5,16 +5,16 @@ Used when loading future races or testing events that need track geometry
 from a previous race at the same circuit.
 """
 
-from typing import Optional, Tuple, List, Callable
-from f1_replay.models import EventInfo
+from typing import Callable, List, Optional, Tuple
 
+from f1_replay.models import EventInfo
 
 # Location aliases - tracks that have different names across years
 # Each group contains equivalent location names (bidirectional matching)
 LOCATION_ALIASES = [
     {"yas marina", "yas island"},  # Abu Dhabi
-    {"imola", "emilia romagna"},   # Imola
-    {"portimao", "algarve"},       # Portugal
+    {"imola", "emilia romagna"},  # Imola
+    {"portimao", "algarve"},  # Portugal
 ]
 
 
@@ -22,9 +22,9 @@ def normalize_circuit_name(name: str) -> str:
     """Normalize circuit/location name for matching."""
     s = name.lower().strip()
     # Remove common suffixes
-    for suffix in [' circuit', ' international', ' street circuit', ' grand prix']:
+    for suffix in [" circuit", " international", " street circuit", " grand prix"]:
         if s.endswith(suffix):
-            s = s[:-len(suffix)]
+            s = s[: -len(suffix)]
     return s
 
 
@@ -76,11 +76,7 @@ class TrackFinder:
         self.get_season = get_season
 
     def find_historical_race(
-        self,
-        location: str,
-        current_year: int,
-        circuit: str = "",
-        max_years_back: int = 5
+        self, location: str, current_year: int, circuit: str = "", max_years_back: int = 5
     ) -> Optional[Tuple[int, int, EventInfo]]:
         """
         Find a previous race at the same circuit.
@@ -102,7 +98,7 @@ class TrackFinder:
 
         def is_race_event(event: EventInfo) -> bool:
             """Check if event is a race event (not testing)."""
-            return event.round_number > 0 and event.format != 'testing'
+            return event.round_number > 0 and event.format != "testing"
 
         # First pass: circuit name match (most reliable - same physical track)
         if search_circuit:
@@ -139,7 +135,7 @@ class TrackFinder:
         self,
         circuit_name: str,
         exclude_year: Optional[int] = None,
-        years_range: Tuple[int, int] = (2020, 2025)
+        years_range: Tuple[int, int] = (2020, 2025),
     ) -> Optional[Tuple[int, int, EventInfo]]:
         """
         Find any race at a specific circuit within a year range.
@@ -161,7 +157,7 @@ class TrackFinder:
                 continue
 
             for event in season:
-                if event.round_number == 0 or event.format == 'testing':
+                if event.round_number == 0 or event.format == "testing":
                     continue
                 if event.circuit_name and matches_location(circuit_name, event.circuit_name):
                     return (year, event.round_number, event)

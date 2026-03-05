@@ -5,10 +5,19 @@ Wraps F1Weekend dataclass for user-friendly access.
 Manages session loading/unloading for memory efficiency.
 """
 
-from typing import TYPE_CHECKING, Dict, List, Optional, Callable
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional
+
 import numpy as np
 
-from f1_replay.models import F1Weekend, EventInfo, CircuitData, TrackGeometry, MarshalSector, PitLane, DirectionArrow
+from f1_replay.models import (
+    CircuitData,
+    DirectionArrow,
+    EventInfo,
+    F1Weekend,
+    MarshalSector,
+    PitLane,
+    TrackGeometry,
+)
 
 if TYPE_CHECKING:
     from f1_replay.wrappers.session import Session
@@ -61,7 +70,7 @@ class RaceWeekend:
         self,
         data: F1Weekend,
         display_timezone: Optional[str] = None,
-        session_loader: Optional[Callable[[str], Optional["Session"]]] = None
+        session_loader: Optional[Callable[[str], Optional["Session"]]] = None,
     ):
         """
         Initialize from F1Weekend dataclass.
@@ -181,12 +190,12 @@ class RaceWeekend:
         """Get track coordinates as JSON-friendly lists."""
         track = self._data.circuit.track
         result = {
-            'x': track.x.tolist() if isinstance(track.x, np.ndarray) else track.x,
-            'y': track.y.tolist() if isinstance(track.y, np.ndarray) else track.y,
-            'lap_distance': float(track.lap_distance)
+            "x": track.x.tolist() if isinstance(track.x, np.ndarray) else track.x,
+            "y": track.y.tolist() if isinstance(track.y, np.ndarray) else track.y,
+            "lap_distance": float(track.lap_distance),
         }
         if track.distance is not None:
-            result['distance'] = (
+            result["distance"] = (
                 track.distance.tolist()
                 if isinstance(track.distance, np.ndarray)
                 else track.distance
@@ -199,9 +208,9 @@ class RaceWeekend:
         if pit is None:
             return None
         return {
-            'x': pit.x.tolist() if isinstance(pit.x, np.ndarray) else pit.x,
-            'y': pit.y.tolist() if isinstance(pit.y, np.ndarray) else pit.y,
-            'lap_distance': float(pit.length)
+            "x": pit.x.tolist() if isinstance(pit.x, np.ndarray) else pit.x,
+            "y": pit.y.tolist() if isinstance(pit.y, np.ndarray) else pit.y,
+            "lap_distance": float(pit.length),
         }
 
     def get_marshal_sectors(self) -> List[MarshalSector]:
@@ -258,25 +267,43 @@ class RaceWeekend:
     # Session type mapping (accepts acronyms, shortnames, full names)
     SESSION_ALIASES = {
         # Race
-        'race': 'R', 'r': 'R',
+        "race": "R",
+        "r": "R",
         # Qualifying
-        'qualifying': 'Q', 'quali': 'Q', 'q': 'Q',
+        "qualifying": "Q",
+        "quali": "Q",
+        "q": "Q",
         # Sprint
-        'sprint': 'S', 's': 'S',
+        "sprint": "S",
+        "s": "S",
         # Sprint Qualifying
-        'sq': 'SQ', 'sprint qualifying': 'SQ', 'sprint_qualifying': 'SQ',
-        'sprintquali': 'SQ', 'sprint shootout': 'SQ',
+        "sq": "SQ",
+        "sprint qualifying": "SQ",
+        "sprint_qualifying": "SQ",
+        "sprintquali": "SQ",
+        "sprint shootout": "SQ",
         # Practice
-        'fp1': 'FP1', 'practice 1': 'FP1', 'practice1': 'FP1',
-        'fp2': 'FP2', 'practice 2': 'FP2', 'practice2': 'FP2',
-        'fp3': 'FP3', 'practice 3': 'FP3', 'practice3': 'FP3',
+        "fp1": "FP1",
+        "practice 1": "FP1",
+        "practice1": "FP1",
+        "fp2": "FP2",
+        "practice 2": "FP2",
+        "practice2": "FP2",
+        "fp3": "FP3",
+        "practice 3": "FP3",
+        "practice3": "FP3",
     }
 
     # Convert full names to shortnames for display
     SESSION_SHORTNAMES = {
-        'Practice 1': 'FP1', 'Practice 2': 'FP2', 'Practice 3': 'FP3',
-        'Qualifying': 'Q', 'Race': 'R',
-        'Sprint': 'S', 'Sprint Qualifying': 'SQ', 'Sprint Shootout': 'SQ',
+        "Practice 1": "FP1",
+        "Practice 2": "FP2",
+        "Practice 3": "FP3",
+        "Qualifying": "Q",
+        "Race": "R",
+        "Sprint": "S",
+        "Sprint Qualifying": "SQ",
+        "Sprint Shootout": "SQ",
     }
 
     def _normalize_session_type(self, session_type: str) -> str:
@@ -344,15 +371,35 @@ class RaceWeekend:
     def keys(self) -> List[str]:
         """List available data fields."""
         return [
-            'year', 'round_number', 'name', 'official_name', 'circuit_name', 'country',
-            'timezone_offset', 'start_date', 'end_date', 'format', 'session_schedule',
-            'circuit', 'track', 'pit_lane', 'circuit_length', 'corners', 'rotation',
-            'race', 'qualifying', 'sprint', 'fp1', 'fp2', 'fp3'
+            "year",
+            "round_number",
+            "name",
+            "official_name",
+            "circuit_name",
+            "country",
+            "timezone_offset",
+            "start_date",
+            "end_date",
+            "format",
+            "session_schedule",
+            "circuit",
+            "track",
+            "pit_lane",
+            "circuit_length",
+            "corners",
+            "rotation",
+            "race",
+            "qualifying",
+            "sprint",
+            "fp1",
+            "fp2",
+            "fp3",
         ]
 
     def _format_date_range(self) -> str:
         """Format event date range like '11-13 Apr'."""
         from datetime import datetime
+
         try:
             end = datetime.strptime(self.end_date, "%Y-%m-%d")
             start = datetime.strptime(self.start_date, "%Y-%m-%d") if self.start_date else None
@@ -369,7 +416,7 @@ class RaceWeekend:
     def plot(
         self,
         figsize: tuple = (12, 10),
-        color_mode: str = 'white',
+        color_mode: str = "white",
         save_path: str = None,
         dpi: int = 150,
         track_width: float = 4,
@@ -408,10 +455,7 @@ class RaceWeekend:
 
         # Convert to shortnames
         sessions = list(self.session_schedule.keys())
-        short_sessions = [
-            self.SESSION_SHORTNAMES.get(s, s)
-            for s in sessions
-        ] if sessions else []
+        short_sessions = [self.SESSION_SHORTNAMES.get(s, s) for s in sessions] if sessions else []
         sessions_str = ", ".join(short_sessions) if short_sessions else "none"
         parts.append(f", sessions=[{sessions_str}]")
 

@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from f1_replay.models.weekend import TrackGeometry, MarshalSector
+from f1_replay.models.weekend import MarshalSector, TrackGeometry
 
 
 def _make_line_track(n=50, length=500.0):
@@ -26,7 +26,9 @@ def _make_sector_track():
         MarshalSector(number=2, start_distance=33.0, end_distance=66.0),
         MarshalSector(number=3, start_distance=66.0, end_distance=lap_distance),
     ]
-    return TrackGeometry(x=x, y=y, distance=dist, lap_distance=lap_distance, marshal_sectors=sectors)
+    return TrackGeometry(
+        x=x, y=y, distance=dist, lap_distance=lap_distance, marshal_sectors=sectors
+    )
 
 
 class TestProgressOnTrack:
@@ -285,6 +287,6 @@ class TestProjectionConsistency:
         py = track.y[:n].copy()
         prog = track.progress_on_track(px, py)
         for i in range(len(prog) - 1):
-            assert prog[i] <= prog[i + 1] + 0.1, (
-                f"Progress not monotonic at {i}: {prog[i]} > {prog[i+1]}"
-            )
+            assert (
+                prog[i] <= prog[i + 1] + 0.1
+            ), f"Progress not monotonic at {i}: {prog[i]} > {prog[i+1]}"

@@ -31,7 +31,7 @@ jobs:
         run: isort --check --diff f1_replay/ tests/
 
       - name: Lint (flake8)
-        run: flake8 f1_replay/ tests/ --max-line-length 100 --extend-ignore E501,W503
+        run: flake8 f1_replay/ tests/
 
   test:
     name: Tests (py${{ matrix.python-version }})

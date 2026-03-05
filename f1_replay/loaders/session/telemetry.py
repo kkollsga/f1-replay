@@ -13,20 +13,21 @@ Also extracts track and pit lane geometry from race winner's telemetry.
 
 from dataclasses import dataclass
 from typing import Dict, Optional, Tuple
+
 import numpy as np
 import pandas as pd
 import polars as pl
 
 from f1_replay.log import logger
 
-
 # Re-export for backwards compatibility
-__all__ = ['TelemetryBuilder', 'TrackData']
+__all__ = ["TelemetryBuilder", "TrackData"]
 
 
 @dataclass
 class TrackData:
     """Track and pit lane geometry extracted from telemetry."""
+
     track_x: np.ndarray
     track_y: np.ndarray
     track_distance: np.ndarray  # Cumulative distance along track (decimeters)
@@ -36,7 +37,7 @@ class TrackData:
     pit_distance: Optional[np.ndarray] = None  # Cumulative distance along pit (meters)
     pit_length: float = 0.0  # Total pit lane length (meters)
     pit_entry_distance: Optional[float] = None  # Track distance at pit entry (meters)
-    pit_exit_distance: Optional[float] = None   # Track distance at pit exit (meters)
+    pit_exit_distance: Optional[float] = None  # Track distance at pit exit (meters)
     marshal_sectors: Optional[list] = None  # List of (sector_num, from_dist, to_dist) in meters
     corners: Optional[list] = None  # List of (number, distance_m, angle, letter)
     # Reference lap telemetry (from winner's fastest lap)
@@ -50,7 +51,9 @@ class TelemetryBuilder:
     """Build compacted telemetry from FastF1 pos_data and car_data."""
 
     @staticmethod
-    def build_telemetry(f1_session, dnf_drivers: set = None, extract_track: bool = False) -> Tuple[Dict[str, pl.DataFrame], Optional[TrackData], Optional[dict], Dict[str, dict]]:
+    def build_telemetry(
+        f1_session, dnf_drivers: set = None, extract_track: bool = False
+    ) -> Tuple[Dict[str, pl.DataFrame], Optional[TrackData], Optional[dict], Dict[str, dict]]:
         """
         Build telemetry for all drivers from pos_data and car_data.
 
@@ -72,9 +75,9 @@ class TelemetryBuilder:
         telemetry = {}
         status_data_all = {}  # Collect status data per driver for deferred calculation
 
-        pos_data = getattr(f1_session, 'pos_data', None)
-        car_data = getattr(f1_session, 'car_data', None)
-        laps = getattr(f1_session, 'laps', None)
+        pos_data = getattr(f1_session, "pos_data", None)
+        car_data = getattr(f1_session, "car_data", None)
+        laps = getattr(f1_session, "laps", None)
 
         if pos_data is None or car_data is None:
             logger.warning("  ⚠ pos_data or car_data not available")
@@ -82,8 +85,8 @@ class TelemetryBuilder:
 
         # Calculate race_length (max laps across all drivers)
         race_length = 0
-        if laps is not None and len(laps) > 0 and 'LapNumber' in laps.columns:
-            race_length = int(laps['LapNumber'].max())
+        if laps is not None and len(laps) > 0 and "LapNumber" in laps.columns:
+            race_length = int(laps["LapNumber"].max())
             logger.info(f"  → Race length: {race_length} laps")
 
         # Find race winner (P1)
@@ -102,7 +105,7 @@ class TelemetryBuilder:
 
                 driver_laps = None
                 if laps is not None and len(laps) > 0:
-                    driver_laps = laps[laps['Driver'] == driver_code]
+                    driver_laps = laps[laps["Driver"] == driver_code]
 
                 is_dnf = driver_code in dnf_drivers
                 driver_tel, status_data = TelemetryBuilder._build_driver_telemetry(
@@ -123,10 +126,13 @@ class TelemetryBuilder:
         session_timing = None
         if extract_track and telemetry:
             from f1_replay.loaders.session.track_extract import extract_track_and_pit
+
             track_data, session_timing = extract_track_and_pit(telemetry, winner, status_data_all)
             if track_data:
                 # Add track_distance, race_distance, lap_number (from wrap detection)
-                telemetry = TelemetryBuilder._add_track_distance_all(telemetry, track_data, session_timing)
+                telemetry = TelemetryBuilder._add_track_distance_all(
+                    telemetry, track_data, session_timing
+                )
                 # Legacy mode: Status would be added here but is now handled by SessionProcessor
 
         return telemetry, track_data, session_timing, status_data_all
@@ -137,9 +143,9 @@ class TelemetryBuilder:
         try:
             results = f1_session.results
             if results is not None and len(results) > 0:
-                p1 = results[results['Position'] == 1]
+                p1 = results[results["Position"] == 1]
                 if len(p1) > 0:
-                    return p1.iloc[0]['Abbreviation']
+                    return p1.iloc[0]["Abbreviation"]
         except Exception:
             pass
         return None
@@ -152,22 +158,22 @@ class TelemetryBuilder:
             results = f1_session.results
             if results is not None and len(results) > 0:
                 # Vectorized: extract columns and zip
-                nums = results['DriverNumber'].astype(str).values
-                abbrs = results['Abbreviation'].values
+                nums = results["DriverNumber"].astype(str).values
+                abbrs = results["Abbreviation"].values
                 # Build dict from valid pairs
-                driver_map = {
-                    num: abbr for num, abbr in zip(nums, abbrs)
-                    if num and abbr
-                }
+                driver_map = {num: abbr for num, abbr in zip(nums, abbrs) if num and abbr}
         except Exception:
             pass
         return driver_map
 
     @staticmethod
-    def _build_driver_telemetry(pos_df: pd.DataFrame, car_df: pd.DataFrame,
-                                 driver_laps: Optional[pd.DataFrame] = None,
-                                 race_length: int = 0,  # Kept for API compatibility
-                                 is_dnf: bool = False) -> Tuple[Optional[pl.DataFrame], Optional[dict]]:
+    def _build_driver_telemetry(
+        pos_df: pd.DataFrame,
+        car_df: pd.DataFrame,
+        driver_laps: Optional[pd.DataFrame] = None,
+        race_length: int = 0,  # Kept for API compatibility
+        is_dnf: bool = False,
+    ) -> Tuple[Optional[pl.DataFrame], Optional[dict]]:
         """
         Build telemetry for a single driver.
 
@@ -193,21 +199,19 @@ class TelemetryBuilder:
             return None, None
 
         # Sort by time (no compaction - keep all points for accurate order tracking)
-        if 'SessionTime' in pos_df.columns:
-            pos_df = pos_df.sort_values('SessionTime').reset_index(drop=True)
+        if "SessionTime" in pos_df.columns:
+            pos_df = pos_df.sort_values("SessionTime").reset_index(drop=True)
 
         # Sample car_data to pos_data timestamps
         telemetry_df = TelemetryBuilder._sample_car_data(pos_df, car_df)
 
         # Add lap info (also extracts pit windows)
-        telemetry_df, _, finish_time, pit_windows = TelemetryBuilder._add_lap_info(telemetry_df, driver_laps)
+        telemetry_df, _, finish_time, pit_windows = TelemetryBuilder._add_lap_info(
+            telemetry_df, driver_laps
+        )
 
         # Build status_data for deferred status calculation (after lap_number is finalized)
-        status_data = {
-            'finish_time': finish_time,
-            'pit_windows': pit_windows,
-            'is_dnf': is_dnf
-        }
+        status_data = {"finish_time": finish_time, "pit_windows": pit_windows, "is_dnf": is_dnf}
 
         # Add velocity vectors for smooth interpolation
         telemetry_df = TelemetryBuilder._add_velocity_vectors(telemetry_df)
@@ -233,13 +237,13 @@ class TelemetryBuilder:
             return pos_df
 
         # Ensure sorted by time
-        if 'SessionTime' in pos_df.columns:
-            pos_df = pos_df.sort_values('SessionTime').reset_index(drop=True)
+        if "SessionTime" in pos_df.columns:
+            pos_df = pos_df.sort_values("SessionTime").reset_index(drop=True)
 
         # Get X, Y, Z as arrays
-        x = pos_df['X'].values if 'X' in pos_df.columns else np.zeros(len(pos_df))
-        y = pos_df['Y'].values if 'Y' in pos_df.columns else np.zeros(len(pos_df))
-        z = pos_df['Z'].values if 'Z' in pos_df.columns else np.zeros(len(pos_df))
+        x = pos_df["X"].values if "X" in pos_df.columns else np.zeros(len(pos_df))
+        y = pos_df["Y"].values if "Y" in pos_df.columns else np.zeros(len(pos_df))
+        z = pos_df["Z"].values if "Z" in pos_df.columns else np.zeros(len(pos_df))
 
         # Find rows to keep (first and last of each static group)
         keep_mask = np.zeros(len(pos_df), dtype=bool)
@@ -261,7 +265,7 @@ class TelemetryBuilder:
         # First of each group: where group_id changes (position_changed is True)
         keep_mask[position_changed] = True
         # Last of each group: where next row has different group_id
-        keep_mask[:-1] |= (group_id[:-1] != group_id[1:])
+        keep_mask[:-1] |= group_id[:-1] != group_id[1:]
         keep_mask[-1] = True  # Always keep last row
 
         compacted = pos_df[keep_mask].reset_index(drop=True)
@@ -280,13 +284,13 @@ class TelemetryBuilder:
             Combined DataFrame with position and car data (snake_case columns)
         """
         # Convert SessionTime to seconds for matching
-        if 'SessionTime' in pos_df.columns:
-            pos_times = pos_df['SessionTime'].dt.total_seconds().values
+        if "SessionTime" in pos_df.columns:
+            pos_times = pos_df["SessionTime"].dt.total_seconds().values
         else:
             pos_times = np.arange(len(pos_df))
 
-        if 'SessionTime' in car_df.columns:
-            car_times = car_df['SessionTime'].dt.total_seconds().values
+        if "SessionTime" in car_df.columns:
+            car_times = car_df["SessionTime"].dt.total_seconds().values
         else:
             car_times = np.arange(len(car_df))
 
@@ -306,22 +310,22 @@ class TelemetryBuilder:
         result = pd.DataFrame()
 
         # Add session_time (from pos_data, converted to seconds)
-        result['session_time'] = pos_times
+        result["session_time"] = pos_times
 
         # Add position columns (lowercase)
-        result['status'] = pos_df['Status'].values if 'Status' in pos_df.columns else 'Unknown'
-        result['x'] = pos_df['X'].values if 'X' in pos_df.columns else 0.0
-        result['y'] = pos_df['Y'].values if 'Y' in pos_df.columns else 0.0
-        result['z'] = pos_df['Z'].values if 'Z' in pos_df.columns else 0.0
+        result["status"] = pos_df["Status"].values if "Status" in pos_df.columns else "Unknown"
+        result["x"] = pos_df["X"].values if "X" in pos_df.columns else 0.0
+        result["y"] = pos_df["Y"].values if "Y" in pos_df.columns else 0.0
+        result["z"] = pos_df["Z"].values if "Z" in pos_df.columns else 0.0
 
         # Sample car data columns (with snake_case names)
         car_column_map = {
-            'RPM': 'rpm',
-            'Speed': 'speed',
-            'nGear': 'n_gear',
-            'Throttle': 'throttle',
-            'Brake': 'brake',
-            'DRS': 'drs'
+            "RPM": "rpm",
+            "Speed": "speed",
+            "nGear": "n_gear",
+            "Throttle": "throttle",
+            "Brake": "brake",
+            "DRS": "drs",
         }
         for src_col, dst_col in car_column_map.items():
             if src_col in car_df.columns:
@@ -348,13 +352,13 @@ class TelemetryBuilder:
         """
         n = len(telemetry_df)
         if n < 2:
-            telemetry_df['vx'] = 0.0
-            telemetry_df['vy'] = 0.0
+            telemetry_df["vx"] = 0.0
+            telemetry_df["vy"] = 0.0
             return telemetry_df
 
-        x = telemetry_df['x'].values.astype(np.float64)
-        y = telemetry_df['y'].values.astype(np.float64)
-        t = telemetry_df['session_time'].values.astype(np.float64)
+        x = telemetry_df["x"].values.astype(np.float64)
+        y = telemetry_df["y"].values.astype(np.float64)
+        t = telemetry_df["session_time"].values.astype(np.float64)
 
         vx = np.zeros(n, dtype=np.float32)
         vy = np.zeros(n, dtype=np.float32)
@@ -418,8 +422,8 @@ class TelemetryBuilder:
         vx = smooth_ema_bidirectional(vx)
         vy = smooth_ema_bidirectional(vy)
 
-        telemetry_df['vx'] = vx.astype(np.float32)
-        telemetry_df['vy'] = vy.astype(np.float32)
+        telemetry_df["vx"] = vx.astype(np.float32)
+        telemetry_df["vy"] = vy.astype(np.float32)
 
         return telemetry_df
 
@@ -449,65 +453,65 @@ class TelemetryBuilder:
 
         # Default values
         lap_numbers = np.zeros(n_rows, dtype=np.int32)
-        compounds = np.array(['UNKNOWN'] * n_rows, dtype=object)
+        compounds = np.array(["UNKNOWN"] * n_rows, dtype=object)
         tyre_life = np.zeros(n_rows, dtype=np.float32)
         max_lap = 0
         finish_time = None  # Session time when driver crossed finish line on last lap
         pit_windows = []  # List of (pit_in_seconds, pit_out_seconds) tuples
 
         if driver_laps is None or len(driver_laps) == 0:
-            telemetry_df['lap_number'] = lap_numbers
-            telemetry_df['compound'] = compounds
-            telemetry_df['tyre_life'] = tyre_life
+            telemetry_df["lap_number"] = lap_numbers
+            telemetry_df["compound"] = compounds
+            telemetry_df["tyre_life"] = tyre_life
             return telemetry_df, max_lap, finish_time, pit_windows
 
         # Vectorized extraction of lap info (avoid iterrows)
         laps_df = driver_laps.copy()
 
         # Filter valid laps (have LapNumber and Time for completion-based tracking)
-        valid_mask = laps_df['LapNumber'].notna()
-        if 'Time' in laps_df.columns:
-            valid_mask = valid_mask & laps_df['Time'].notna()
+        valid_mask = laps_df["LapNumber"].notna()
+        if "Time" in laps_df.columns:
+            valid_mask = valid_mask & laps_df["Time"].notna()
         laps_df = laps_df[valid_mask]
 
         if len(laps_df) == 0:
-            telemetry_df['lap_number'] = lap_numbers
-            telemetry_df['compound'] = compounds
-            telemetry_df['tyre_life'] = tyre_life
+            telemetry_df["lap_number"] = lap_numbers
+            telemetry_df["compound"] = compounds
+            telemetry_df["tyre_life"] = tyre_life
             return telemetry_df, max_lap, finish_time, pit_windows
 
         # Convert times to seconds (vectorized)
-        lap_nums_arr = laps_df['LapNumber'].values.astype(np.int32)
+        lap_nums_arr = laps_df["LapNumber"].values.astype(np.int32)
 
         # Get lap completion times (Time column) and start times
-        if 'Time' in laps_df.columns:
-            lap_completion_times = laps_df['Time'].dt.total_seconds().values
+        if "Time" in laps_df.columns:
+            lap_completion_times = laps_df["Time"].dt.total_seconds().values
         else:
             lap_completion_times = np.full(len(laps_df), np.nan)
 
-        if 'LapStartTime' in laps_df.columns:
-            lap_start_times = laps_df['LapStartTime'].dt.total_seconds().values
+        if "LapStartTime" in laps_df.columns:
+            lap_start_times = laps_df["LapStartTime"].dt.total_seconds().values
         else:
             lap_start_times = np.full(len(laps_df), np.nan)
 
         # Handle Compound - fill NaN with 'UNKNOWN'
-        if 'Compound' in laps_df.columns:
-            compounds_arr = laps_df['Compound'].fillna('UNKNOWN').values
+        if "Compound" in laps_df.columns:
+            compounds_arr = laps_df["Compound"].fillna("UNKNOWN").values
         else:
-            compounds_arr = np.array(['UNKNOWN'] * len(laps_df))
+            compounds_arr = np.array(["UNKNOWN"] * len(laps_df))
 
         # Handle TyreLife - fill NaN with 0
-        if 'TyreLife' in laps_df.columns:
-            tyre_life_arr = laps_df['TyreLife'].fillna(0).values.astype(np.float32)
+        if "TyreLife" in laps_df.columns:
+            tyre_life_arr = laps_df["TyreLife"].fillna(0).values.astype(np.float32)
         else:
             tyre_life_arr = np.zeros(len(laps_df), dtype=np.float32)
 
         # Sort by lap completion time
         valid_completion = ~np.isnan(lap_completion_times)
         if not np.any(valid_completion):
-            telemetry_df['lap_number'] = lap_numbers
-            telemetry_df['compound'] = compounds
-            telemetry_df['tyre_life'] = tyre_life
+            telemetry_df["lap_number"] = lap_numbers
+            telemetry_df["compound"] = compounds
+            telemetry_df["tyre_life"] = tyre_life
             return telemetry_df, max_lap, finish_time, pit_windows
 
         sort_idx = np.argsort(lap_completion_times)
@@ -525,11 +529,11 @@ class TelemetryBuilder:
         race_start_time = lap_start_times[0] if not np.isnan(lap_start_times[0]) else 0
 
         # Get telemetry times
-        session_times = telemetry_df['session_time'].values
+        session_times = telemetry_df["session_time"].values
 
         # Determine lap_number using lap COMPLETION times:
         # completed_laps = how many laps have been completed at each session_time
-        completed_laps = np.searchsorted(lap_completion_times, session_times, side='right')
+        completed_laps = np.searchsorted(lap_completion_times, session_times, side="right")
         # lap_number = completed_laps + 1 (the lap we're currently on)
         # But before race starts, lap_number = 0
         lap_numbers = completed_laps + 1
@@ -541,15 +545,15 @@ class TelemetryBuilder:
         compounds = compounds_arr[lap_indices]
         tyre_life = tyre_life_arr[lap_indices]
 
-        telemetry_df['lap_number'] = lap_numbers
-        telemetry_df['compound'] = compounds
-        telemetry_df['tyre_life'] = tyre_life
+        telemetry_df["lap_number"] = lap_numbers
+        telemetry_df["compound"] = compounds
+        telemetry_df["tyre_life"] = tyre_life
 
         # Extract pit windows from PitInTime/PitOutTime (vectorized)
         # PitInTime = when car entered pit (on in-lap)
         # PitOutTime = when car exited pit (on out-lap, usually next lap)
-        if 'PitInTime' in driver_laps.columns:
-            pit_in_series = driver_laps['PitInTime'].dropna()
+        if "PitInTime" in driver_laps.columns:
+            pit_in_series = driver_laps["PitInTime"].dropna()
             if len(pit_in_series) > 0:
                 pit_in_times = pit_in_series.dt.total_seconds().values
                 pit_in_times = np.sort(pit_in_times)
@@ -558,8 +562,8 @@ class TelemetryBuilder:
         else:
             pit_in_times = np.array([])
 
-        if 'PitOutTime' in driver_laps.columns:
-            pit_out_series = driver_laps['PitOutTime'].dropna()
+        if "PitOutTime" in driver_laps.columns:
+            pit_out_series = driver_laps["PitOutTime"].dropna()
             if len(pit_out_series) > 0:
                 pit_out_times = pit_out_series.dt.total_seconds().values
                 pit_out_times = np.sort(pit_out_times)
@@ -571,7 +575,7 @@ class TelemetryBuilder:
         # Pair them up using searchsorted: each pit_in with next pit_out after it
         if len(pit_in_times) > 0 and len(pit_out_times) > 0:
             # Find index of first pit_out > pit_in for each pit_in
-            out_indices = np.searchsorted(pit_out_times, pit_in_times, side='right')
+            out_indices = np.searchsorted(pit_out_times, pit_in_times, side="right")
             for i, pit_in in enumerate(pit_in_times):
                 if out_indices[i] < len(pit_out_times):
                     pit_windows.append((float(pit_in), float(pit_out_times[out_indices[i]])))
@@ -579,8 +583,11 @@ class TelemetryBuilder:
         return telemetry_df, max_lap, finish_time, pit_windows
 
     @staticmethod
-    def _add_track_distance_all(telemetry: Dict[str, pl.DataFrame], track_data: TrackData,
-                                 session_timing: Optional[dict] = None) -> Dict[str, pl.DataFrame]:
+    def _add_track_distance_all(
+        telemetry: Dict[str, pl.DataFrame],
+        track_data: TrackData,
+        session_timing: Optional[dict] = None,
+    ) -> Dict[str, pl.DataFrame]:
         """
         Add track_distance, race_distance, and recalculate lap_number from wrap detection.
 
@@ -619,7 +626,7 @@ class TelemetryBuilder:
             x=track_data.track_x,
             y=track_data.track_y,
             distance=track_dist_m,
-            lap_distance=lap_distance_m
+            lap_distance=lap_distance_m,
         )
 
         # Add track_distance and race_distance to each driver
@@ -627,8 +634,8 @@ class TelemetryBuilder:
         # race_distance: finish_crossings * track_length + track_distance
         updated = {}
         for driver, tel in telemetry.items():
-            px = tel['x'].to_numpy().astype(np.float32)
-            py = tel['y'].to_numpy().astype(np.float32)
+            px = tel["x"].to_numpy().astype(np.float32)
+            py = tel["y"].to_numpy().astype(np.float32)
 
             # Project all positions onto track (including pit lane positions)
             # This gives track_distance as progress along the circuit
@@ -636,11 +643,11 @@ class TelemetryBuilder:
 
             # Calculate lap_number and race_distance using track_distance wraps as source of truth
             # This ensures lap_number and race_distance are perfectly synchronized
-            session_times = tel['session_time'].to_numpy()
+            session_times = tel["session_time"].to_numpy()
 
             # Find warmup start index from session_timing
             warmup_start_idx = 0
-            warmup_start_time = session_timing.get('warmup_start_time') if session_timing else None
+            warmup_start_time = session_timing.get("warmup_start_time") if session_timing else None
             if warmup_start_time is not None:
                 warmup_mask = session_times >= warmup_start_time
                 if np.any(warmup_mask):
@@ -702,25 +709,31 @@ class TelemetryBuilder:
             # This gives negative values during warmup (lap 0), starting at 0 for lap 1
             # PreSession (lap -1): very negative, Warmup (lap 0): -track_length to 0, Lap 1+: 0 onwards
             # Note: race_distance freezing happens in _add_status_all() after status is determined
-            race_distance = ((new_lap_numbers - 1) * lap_distance_m + track_distance).astype(np.float32)
+            race_distance = ((new_lap_numbers - 1) * lap_distance_m + track_distance).astype(
+                np.float32
+            )
 
             # Add/update columns to telemetry (status updated later by SessionProcessor)
             updated[driver] = (
                 tel.lazy()
-                .with_columns(pl.Series('track_distance', track_distance))
-                .with_columns(pl.Series('race_distance', race_distance))
-                .with_columns(pl.Series('lap_number', new_lap_numbers))
+                .with_columns(pl.Series("track_distance", track_distance))
+                .with_columns(pl.Series("race_distance", race_distance))
+                .with_columns(pl.Series("lap_number", new_lap_numbers))
                 .collect()
             )
 
-        logger.info(f"  ✓ Added track_distance, race_distance, lap_number (track: {lap_distance_m:.0f}m)")
+        logger.info(
+            f"  ✓ Added track_distance, race_distance, lap_number (track: {lap_distance_m:.0f}m)"
+        )
         return updated
 
     @staticmethod
-    def _add_status_all(telemetry: Dict[str, pl.DataFrame],
-                        status_data_all: Dict[str, dict],
-                        warmup_intervals: list = None,
-                        lights_out_offset: float = None) -> Dict[str, pl.DataFrame]:
+    def _add_status_all(
+        telemetry: Dict[str, pl.DataFrame],
+        status_data_all: Dict[str, dict],
+        warmup_intervals: list = None,
+        lights_out_offset: float = None,
+    ) -> Dict[str, pl.DataFrame]:
         """
         Update status column for all drivers using track status and laps data.
 
@@ -749,17 +762,17 @@ class TelemetryBuilder:
 
         for driver, tel in telemetry.items():
             status_data = status_data_all.get(driver, {})
-            finish_time = status_data.get('finish_time')
-            pit_windows = status_data.get('pit_windows', [])
-            is_dnf = status_data.get('is_dnf', False)
+            finish_time = status_data.get("finish_time")
+            pit_windows = status_data.get("pit_windows", [])
+            is_dnf = status_data.get("is_dnf", False)
 
             # Extract arrays (copy arrays we'll modify)
-            lap_numbers = tel['lap_number'].to_numpy().copy()
-            session_times = tel['session_time'].to_numpy()
-            race_distance = tel['race_distance'].to_numpy().copy()
-            x = tel['x'].to_numpy()
-            y = tel['y'].to_numpy()
-            z = tel['z'].to_numpy() if 'z' in tel.columns else np.zeros(len(tel))
+            lap_numbers = tel["lap_number"].to_numpy().copy()
+            session_times = tel["session_time"].to_numpy()
+            race_distance = tel["race_distance"].to_numpy().copy()
+            x = tel["x"].to_numpy()
+            y = tel["y"].to_numpy()
+            z = tel["z"].to_numpy() if "z" in tel.columns else np.zeros(len(tel))
             n_rows = len(tel)
 
             # Detect retirement timing from static position (car stopped moving)
@@ -838,15 +851,15 @@ class TelemetryBuilder:
                 pit_ins = pit_arr[:, 0]
                 pit_outs = pit_arr[:, 1]
                 is_pit = np.any(
-                    (session_times[:, None] >= pit_ins[None, :]) &
-                    (session_times[:, None] < pit_outs[None, :]),
-                    axis=1
+                    (session_times[:, None] >= pit_ins[None, :])
+                    & (session_times[:, None] < pit_outs[None, :]),
+                    axis=1,
                 )
 
             # Build status using np.select (priority order matters)
             conditions = [is_presession, is_retired, is_finished, is_pit, is_warmup]
-            choices = ['PreSession', 'Retired', 'Finished', 'Pit', 'WarmUp']
-            status = np.select(conditions, choices, default='Racing')
+            choices = ["PreSession", "Retired", "Finished", "Pit", "WarmUp"]
+            status = np.select(conditions, choices, default="Racing")
 
             # lap_number comes from wrap detection in _add_track_distance_all() as single source of truth
             # Do NOT modify lap_numbers here - only freeze values for Finished/Retired below
@@ -874,9 +887,9 @@ class TelemetryBuilder:
             # Update telemetry with updated status, frozen race_distance and lap_number
             updated[driver] = (
                 tel.lazy()
-                .with_columns(pl.Series('status', status))
-                .with_columns(pl.Series('race_distance', race_distance))
-                .with_columns(pl.Series('lap_number', lap_numbers))
+                .with_columns(pl.Series("status", status))
+                .with_columns(pl.Series("race_distance", race_distance))
+                .with_columns(pl.Series("lap_number", lap_numbers))
                 .collect()
             )
 
@@ -890,5 +903,5 @@ class TelemetryBuilder:
         Delegates to track_extract module. Kept here for API compatibility.
         """
         from f1_replay.loaders.session.track_extract import extract_track_from_driver as _extract
-        return _extract(f1_session, driver)
 
+        return _extract(f1_session, driver)
