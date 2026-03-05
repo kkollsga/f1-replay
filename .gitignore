@@ -11,7 +11,6 @@ fastf1_docs/
 
 # Project-specific
 CLAUDE.md
-*.ipynb
 
 .fastf1_cache/
 __pycache__/

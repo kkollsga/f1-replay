@@ -13,6 +13,8 @@ from f1_replay.models import (
 from f1_replay.loaders.core.client import FastF1Client
 from f1_replay.loaders.weekend.light_telemetry import LightTelemetryBuilder
 from f1_replay.loaders.session.telemetry import TrackData
+from f1_replay.services.track_finder import get_location_aliases
+from f1_replay.log import logger
 
 # Manual rotation overrides (location name -> degrees)
 # Keys must be lowercase with underscores (normalized format)
@@ -36,15 +38,6 @@ MANUAL_ROTATIONS = {
     "yas_marina": 265,
 }
 
-# Location aliases - tracks with different names across years (bidirectional)
-# When looking up rotation, all aliases in a group are checked
-LOCATION_ALIASES = [
-    {"yas_marina", "yas_island"},  # Abu Dhabi
-    {"imola", "emilia_romagna"},   # Imola
-    {"portimao", "algarve"},       # Portugal
-]
-
-
 def extract_timezone_offset(date_str: str) -> str:
     """Extract timezone offset from ISO datetime string (e.g., '+02:00' from '2025-09-05T13:30:00+02:00')."""
     import re
@@ -64,13 +57,12 @@ def get_manual_rotation(location: str) -> Optional[float]:
     if key in MANUAL_ROTATIONS:
         return MANUAL_ROTATIONS[key]
 
-    # Check if key matches any alias group, then look up all aliases
-    for alias_group in LOCATION_ALIASES:
-        if any(alias in key or key in alias for alias in alias_group):
-            # Found matching alias group - check all aliases for rotation
-            for alias in alias_group:
-                if alias in MANUAL_ROTATIONS:
-                    return MANUAL_ROTATIONS[alias]
+    # Check aliases from shared track_finder module
+    aliases = get_location_aliases(location)
+    for alias in aliases:
+        alias_key = alias.replace(" ", "_").replace("-", "_")
+        if alias_key in MANUAL_ROTATIONS:
+            return MANUAL_ROTATIONS[alias_key]
 
     return None
 
@@ -95,11 +87,11 @@ class WeekendProcessor:
         """
         # Handle testing events with dedicated FastF1 API
         if test_number is not None:
-            print(f"→ Loading weekend {year} T{test_number:02d}...")
+            logger.info(f"→ Loading weekend {year} T{test_number:02d}...")
             event = self.fastf1_client.get_testing_event(year, test_number)
         else:
             identifier = f"'{round_num_or_name}'" if isinstance(round_num_or_name, str) else f"Round {round_num_or_name}"
-            print(f"→ Loading weekend {year} {identifier}...")
+            logger.info(f"→ Loading weekend {year} {identifier}...")
             event = self.fastf1_client.get_event(year, round_num_or_name)
 
         if event is None:
@@ -116,7 +108,7 @@ class WeekendProcessor:
         circuit = self._build_circuit_with_track(year, round_num_or_name, test_number, circuit_name, event_info)
 
         weekend = F1Weekend(event=event_info, circuit=circuit)
-        print(f"  ✓ Weekend complete: {event_info.name}")
+        logger.info(f"  ✓ Weekend complete: {event_info.name}")
         return weekend
 
     def _build_circuit_with_track(self, year: int, round_num_or_name: Union[int, str],
@@ -142,14 +134,14 @@ class WeekendProcessor:
         Returns:
             CircuitData with real track or placeholder
         """
-        print(f"  → Building circuit with track geometry...")
+        logger.info(f"  → Building circuit with track geometry...")
 
         # Get rotation (manual override takes priority)
         rotation_deg = self._get_rotation(year, round_num_or_name, test_number, circuit_name)
 
         # Skip extraction for testing events (use historical data instead)
         if event_info and event_info.format == 'testing':
-            print(f"  ⚠ Testing event - creating placeholder (will use historical track)")
+            logger.warning(f"  ⚠ Testing event - creating placeholder (will use historical track)")
             return self._build_placeholder_circuit(circuit_name, rotation_deg)
 
         # Try to extract track from race session
@@ -157,7 +149,7 @@ class WeekendProcessor:
 
         if track_data is None:
             # Fallback: create placeholder (for future races, new circuits)
-            print(f"  ⚠ Could not extract track - using placeholder")
+            logger.warning(f"  ⚠ Could not extract track - using placeholder")
             return self._build_placeholder_circuit(circuit_name, rotation_deg)
 
         # Build complete CircuitData with real track
@@ -176,7 +168,7 @@ class WeekendProcessor:
                     session = self.fastf1_client.get_testing_session(year, test_number, session_num, load_telemetry=False)
                     if session:
                         break
-                except:
+                except (ValueError, TypeError, KeyError, Exception):
                     continue
         else:
             for session_type in ['FP1', 'Q', 'R']:
@@ -184,7 +176,7 @@ class WeekendProcessor:
                     session = self.fastf1_client.get_session(year, round_num_or_name, session_type, load_telemetry=False)
                     if session:
                         break
-                except:
+                except (ValueError, TypeError, KeyError, Exception):
                     continue
 
         if session:
@@ -192,16 +184,16 @@ class WeekendProcessor:
                 circuit_info = session.get_circuit_info()
                 if circuit_info and hasattr(circuit_info, 'rotation'):
                     rotation_deg = float(circuit_info.rotation)
-            except:
+            except (ValueError, TypeError, AttributeError):
                 pass
 
         # Check for manual rotation override (takes priority)
         manual_rot = get_manual_rotation(circuit_name)
         if manual_rot is not None:
             rotation_deg = manual_rot
-            print(f"  ✓ Rotation: {rotation_deg}° (manual override)")
+            logger.info(f"  ✓ Rotation: {rotation_deg}° (manual override)")
         elif rotation_deg != 0:
-            print(f"  ✓ Rotation: {rotation_deg}° (FastF1)")
+            logger.info(f"  ✓ Rotation: {rotation_deg}° (FastF1)")
 
         return rotation_deg
 
@@ -226,7 +218,7 @@ class WeekendProcessor:
                 # Testing events don't extract track (handled by historical search in Manager)
                 return None
 
-            print(f"  → Loading race session for track extraction...")
+            logger.info(f"  → Loading race session for track extraction...")
             session = self.fastf1_client.get_session_with_all_data(year, round_num_or_name, 'R')
 
             if session is None:
@@ -235,10 +227,10 @@ class WeekendProcessor:
             # Get race winner
             winner = self._get_race_winner(session)
             if winner is None:
-                print(f"  ⚠ Could not determine race winner")
+                logger.warning(f"  ⚠ Could not determine race winner")
                 return None
 
-            print(f"  → Extracting track from race winner: {winner}")
+            logger.info(f"  → Extracting track from race winner: {winner}")
 
             # Extract track using light telemetry
             track_data = LightTelemetryBuilder.extract_track_geometry(session, winner)
@@ -250,7 +242,7 @@ class WeekendProcessor:
             return track_data
 
         except Exception as e:
-            print(f"  ⚠ Track extraction failed: {e}")
+            logger.warning(f"  ⚠ Track extraction failed: {e}")
             return None
 
     def _get_race_winner(self, f1_session) -> Optional[str]:
@@ -305,7 +297,7 @@ class WeekendProcessor:
                         to_dist = sector_distances[i + 1][1] if i + 1 < len(sector_distances) else lap_distance_m + sector_distances[0][1]
                         marshal_sectors.append((sector_num, from_dist, to_dist))
 
-                    print(f"    ✓ Marshal sectors: {len(marshal_sectors)}")
+                    logger.info(f"    ✓ Marshal sectors: {len(marshal_sectors)}")
 
             # Extract corners
             if hasattr(circuit_info, 'corners') and circuit_info.corners is not None:
@@ -327,7 +319,7 @@ class WeekendProcessor:
                         letter = str(corner_letters[i]) if corner_letters[i] and str(corner_letters[i]) != 'nan' else ''
                         corners.append((int(num), float(dist_meters[i]), float(corner_angles[i]), letter))
 
-                    print(f"    ✓ Corners: {len(corners)}")
+                    logger.info(f"    ✓ Corners: {len(corners)}")
 
             return TrackData(
                 track_x=track_data.track_x,
@@ -349,7 +341,7 @@ class WeekendProcessor:
             )
 
         except Exception as e:
-            print(f"    ⚠ Could not extract circuit info: {e}")
+            logger.warning(f"    ⚠ Could not extract circuit info: {e}")
             return track_data
 
     def _build_complete_circuit(self, track_data: TrackData, circuit_name: str,

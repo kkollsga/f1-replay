@@ -22,7 +22,7 @@ Quick Start:
     print(race.drivers)
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.10"
 __author__ = "F1 Replay Development"
 
 # High-level API (most common imports)

@@ -8,6 +8,7 @@ import numpy as np
 
 from f1_replay.models import CircuitData, EventInfo
 from f1_replay.services import TrackTransformer
+from f1_replay.log import logger
 
 
 def _format_date_range(start_date: str, end_date: str) -> str:
@@ -76,7 +77,7 @@ def plot_weekend(
     raw_track_y = circuit.track.y
 
     if raw_track_x is None or len(raw_track_x) == 0:
-        print("No track data available")
+        logger.warning("No track data available")
         return None
 
     fig = plt.figure(figsize=figsize, facecolor=BG_COLOR)
@@ -598,6 +599,6 @@ def plot_weekend(
     if save_path:
         fig.savefig(save_path, dpi=dpi, facecolor=BG_COLOR,
                    edgecolor='none', bbox_inches='tight')
-        print(f"Saved to {save_path}")
+        logger.info(f"Saved to {save_path}")
 
     return fig

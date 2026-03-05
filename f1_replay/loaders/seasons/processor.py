@@ -7,6 +7,7 @@ Builds seasons catalog as List[EventInfo] from FastF1 API.
 from typing import Optional, Dict, List
 from f1_replay.models.event import EventInfo, SessionInfo, get_location_dir
 from f1_replay.loaders.core.client import FastF1Client
+from f1_replay.log import logger
 
 
 # Type alias for seasons catalog
@@ -47,7 +48,7 @@ class SeasonsProcessor:
         Returns:
             Dict {year: [EventInfo]} or None if error
         """
-        print("→ Building F1 seasons catalog...")
+        logger.info("→ Building F1 seasons catalog...")
 
         seasons: SeasonsCatalog = {}
 
@@ -56,12 +57,12 @@ class SeasonsProcessor:
                 events = self._fetch_year(year)
                 if events:
                     seasons[year] = events
-                    print(f"  ✓ {year}: {len(events)} rounds")
+                    logger.info(f"  ✓ {year}: {len(events)} rounds")
             except Exception as e:
-                print(f"  ⚠ {year}: {e}")
+                logger.warning(f"  ⚠ {year}: {e}")
 
         if not seasons:
-            print("  ✗ Could not build any seasons")
+            logger.error("  ✗ Could not build any seasons")
             return None
 
         return seasons

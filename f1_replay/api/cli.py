@@ -14,6 +14,8 @@ import sys
 
 def cmd_race(args):
     """Launch race replay viewer."""
+    from f1_replay.log import setup_logging
+    setup_logging()
     from f1_replay import Manager
 
     manager = Manager(cache_dir=args.cache_dir)
@@ -54,6 +56,8 @@ def cmd_config(args):
 
 def cmd_server(args):
     """Run standalone API server."""
+    from f1_replay.log import setup_logging
+    setup_logging()
     from f1_replay.managers import DataLoader
     from f1_replay.api import create_app
 
@@ -67,6 +71,8 @@ def cmd_server(args):
 
 def cmd_seasons(args):
     """List available seasons and races."""
+    from f1_replay.log import setup_logging
+    setup_logging()
     from f1_replay import Manager
 
     manager = Manager(cache_dir=args.cache_dir)

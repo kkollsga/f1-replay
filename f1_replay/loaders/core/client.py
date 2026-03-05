@@ -9,6 +9,7 @@ from pathlib import Path
 import logging
 import fastf1
 import pandas as pd
+from f1_replay.log import logger
 
 # Suppress verbose FastF1 warnings (e.g., "Car number X cannot be located on track")
 logging.getLogger('fastf1').setLevel(logging.ERROR)
@@ -32,7 +33,7 @@ class FastF1Client:
         fastf1_cache = self.cache_dir / ".fastf1_cache"
         fastf1_cache.mkdir(parents=True, exist_ok=True)
         fastf1.Cache.enable_cache(str(fastf1_cache))
-        print(f"✓ FastF1 cache: {fastf1_cache}")
+        logger.info(f"✓ FastF1 cache: {fastf1_cache}")
 
     # =========================================================================
     # Tier 1: Season Catalog
@@ -53,7 +54,7 @@ class FastF1Client:
             schedule = fastf1.get_event_schedule(year)
             return schedule
         except Exception as e:
-            print(f"✗ Error fetching {year} schedule: {e}")
+            logger.error(f"✗ Error fetching {year} schedule: {e}")
             return None
 
     def get_event(self, year: int, round_num_or_name) -> Optional[pd.Series]:
@@ -72,7 +73,7 @@ class FastF1Client:
             return event
         except Exception as e:
             identifier = f"'{round_num_or_name}'" if isinstance(round_num_or_name, str) else f"R{round_num_or_name}"
-            print(f"✗ Error fetching {year} {identifier} event: {e}")
+            logger.error(f"✗ Error fetching {year} {identifier} event: {e}")
             return None
 
     def get_testing_event(self, year: int, test_number: int = 1) -> Optional[pd.Series]:
@@ -90,7 +91,7 @@ class FastF1Client:
             event = fastf1.get_testing_event(year, test_number)
             return event
         except Exception as e:
-            print(f"✗ Error fetching {year} T{test_number:02d} testing event: {e}")
+            logger.error(f"✗ Error fetching {year} T{test_number:02d} testing event: {e}")
             return None
 
     def get_testing_session(self, year: int, test_number: int,
@@ -122,7 +123,7 @@ class FastF1Client:
             return session
 
         except Exception as e:
-            print(f"✗ Error fetching {year} T{test_number:02d} Session {session_number}: {e}")
+            logger.error(f"✗ Error fetching {year} T{test_number:02d} Session {session_number}: {e}")
             return None
 
     # =========================================================================
@@ -159,7 +160,7 @@ class FastF1Client:
 
         except Exception as e:
             identifier = f"'{round_num_or_name}'" if isinstance(round_num_or_name, str) else f"R{round_num_or_name}"
-            print(f"✗ Error fetching {year} {identifier} {session_type}: {e}")
+            logger.error(f"✗ Error fetching {year} {identifier} {session_type}: {e}")
             return None
 
     # =========================================================================
@@ -186,7 +187,7 @@ class FastF1Client:
 
         except Exception as e:
             identifier = f"'{round_num_or_name}'" if isinstance(round_num_or_name, str) else f"R{round_num_or_name}"
-            print(f"✗ Error loading {year} {identifier} {session_type}: {e}")
+            logger.error(f"✗ Error loading {year} {identifier} {session_type}: {e}")
             return None
 
     # =========================================================================
@@ -200,7 +201,7 @@ class FastF1Client:
                 return None
             return session.laps.pick_fastest()
         except Exception as e:
-            print(f"⚠ Error getting fastest lap: {e}")
+            logger.warning(f"⚠ Error getting fastest lap: {e}")
             return None
 
     def get_pit_stop_laps(self, session) -> tuple:
@@ -210,7 +211,7 @@ class FastF1Client:
             out_laps = session.laps.pick_box_laps(which='out')
             return in_laps, out_laps
         except Exception as e:
-            print(f"⚠ Error getting pit stop laps: {e}")
+            logger.warning(f"⚠ Error getting pit stop laps: {e}")
             return None, None
 
     def get_drivers_in_session(self, session) -> List[str]:
@@ -220,7 +221,7 @@ class FastF1Client:
                 return []
             return sorted(session.laps['Driver'].unique().tolist())
         except Exception as e:
-            print(f"⚠ Error getting drivers: {e}")
+            logger.warning(f"⚠ Error getting drivers: {e}")
             return []
 
     def get_driver_results(self, session) -> Optional[pd.DataFrame]:
@@ -230,5 +231,5 @@ class FastF1Client:
                 return None
             return session.results
         except Exception as e:
-            print(f"⚠ Error getting results: {e}")
+            logger.warning(f"⚠ Error getting results: {e}")
             return None

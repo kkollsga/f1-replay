@@ -10,6 +10,8 @@ import pickle
 from pathlib import Path
 from typing import Optional
 
+from f1_replay.log import logger
+
 from f1_replay.models import (
     F1Weekend, LoadResult, CircuitData, TrackGeometry, PitLane, RaceResults, DirectionArrow, EventInfo
 )
@@ -50,7 +52,7 @@ class DataLoader:
         # Memory cache to avoid repeated disk reads
         self._seasons_cache: Optional[SeasonsCatalog] = None
 
-        print(f"✓ DataLoader initialized: {self.cache_dir}")
+        logger.info(f"✓ DataLoader initialized: {self.cache_dir}")
 
     # =========================================================================
     # TIER 1: Seasons Catalog
@@ -92,23 +94,23 @@ class DataLoader:
 
                 # Check if current year is missing from cache
                 if current_year not in seasons:
-                    print(f"⚠ Cache missing {current_year}, fetching...")
+                    logger.warning(f"⚠ Cache missing {current_year}, fetching...")
                     new_rounds = self.seasons_processor._fetch_year(current_year)
                     if new_rounds:
                         seasons[current_year] = new_rounds
                         # Update disk cache
                         with open(seasons_path, 'wb') as f:
                             pickle.dump(seasons, f, protocol=pickle.HIGHEST_PROTOCOL)
-                        print(f"✓ Added {current_year} to cache ({len(new_rounds)} rounds)")
+                        logger.info(f"✓ Added {current_year} to cache ({len(new_rounds)} rounds)")
 
-                print(f"✓ Loaded seasons from cache: {sorted(seasons.keys())}")
+                logger.info(f"✓ Loaded seasons from cache: {sorted(seasons.keys())}")
                 self._seasons_cache = seasons  # Store in memory
                 return seasons
             except Exception as e:
-                print(f"⚠ Could not load cached seasons: {e}")
+                logger.warning(f"⚠ Could not load cached seasons: {e}")
 
         # Build from FastF1
-        print(f"\n📡 Building seasons catalog from FastF1...")
+        logger.info("📡 Building seasons catalog from FastF1...")
         seasons = self.seasons_processor.build_seasons(years)
 
         if seasons is None:
@@ -118,9 +120,9 @@ class DataLoader:
         try:
             with open(seasons_path, 'wb') as f:
                 pickle.dump(seasons, f, protocol=pickle.HIGHEST_PROTOCOL)
-            print(f"✓ Cached seasons to {seasons_path}\n")
+            logger.info(f"✓ Cached seasons to {seasons_path}")
         except Exception as e:
-            print(f"⚠ Could not cache seasons: {e}")
+            logger.warning(f"⚠ Could not cache seasons: {e}")
 
         self._seasons_cache = seasons  # Store in memory
         return seasons
@@ -162,13 +164,13 @@ class DataLoader:
             try:
                 with open(weekend_path, 'rb') as f:
                     weekend = pickle.load(f)
-                print(f"✓ Loaded weekend from cache: {event.name}")
+                logger.info(f"✓ Loaded weekend from cache: {event.name}")
                 return weekend
             except Exception as e:
-                print(f"⚠ Could not load cached weekend: {e}")
+                logger.warning(f"⚠ Could not load cached weekend: {e}")
 
         # Build from FastF1
-        print(f"\n📡 Building weekend data from FastF1...")
+        logger.info("📡 Building weekend data from FastF1...")
 
         # For testing events (round=0), use dedicated testing API
         is_testing = event.format == 'testing'
@@ -186,9 +188,9 @@ class DataLoader:
         try:
             with open(weekend_path, 'wb') as f:
                 pickle.dump(weekend, f, protocol=pickle.HIGHEST_PROTOCOL)
-            print(f"✓ Cached weekend to {weekend_path}\n")
+            logger.info(f"✓ Cached weekend to {weekend_path}")
         except Exception as e:
-            print(f"⚠ Could not cache weekend: {e}")
+            logger.warning(f"⚠ Could not cache weekend: {e}")
 
         return weekend
 
@@ -226,7 +228,7 @@ class DataLoader:
         try:
             fastf1_code = to_fastf1_code(session_type)
         except ValueError as e:
-            print(f"✗ {e}")
+            logger.error(f"✗ {e}")
             return None
 
         # Build cache path (use user-friendly name for file)
@@ -243,13 +245,13 @@ class DataLoader:
             try:
                 with open(session_path, 'rb') as f:
                     session = pickle.load(f)
-                print(f"✓ Loaded session from cache: {session_type}")
+                logger.info(f"✓ Loaded session from cache: {session_type}")
                 return LoadResult(data=session, raw_session=None)
             except Exception as e:
-                print(f"⚠ Could not load cached session: {e}")
+                logger.warning(f"⚠ Could not load cached session: {e}")
 
         # Build from FastF1
-        print(f"\n📡 Building session data from FastF1...")
+        logger.info("📡 Building session data from FastF1...")
 
         # Create processor with circuit length and weekend track
         processor = SessionProcessor(
@@ -270,9 +272,9 @@ class DataLoader:
         try:
             with open(session_path, 'wb') as f:
                 pickle.dump(session, f, protocol=pickle.HIGHEST_PROTOCOL)
-            print(f"✓ Cached session to {session_path}\n")
+            logger.info(f"✓ Cached session to {session_path}")
         except Exception as e:
-            print(f"⚠ Could not cache session: {e}")
+            logger.warning(f"⚠ Could not cache session: {e}")
 
         return LoadResult(data=session, raw_session=raw_session)
 
@@ -304,7 +306,7 @@ class DataLoader:
             winner = winner_row['Abbreviation'].iloc[0]
             return RaceResults(winner=winner, raw_session=f1_session)
         except Exception as e:
-            print(f"  ⚠ Could not load race results: {e}")
+            logger.warning(f"  ⚠ Could not load race results: {e}")
             return None
 
     def get_raw_session(self, year: int, round_num: int, session_type: str = 'R'):
@@ -457,9 +459,9 @@ class DataLoader:
                 pickle.dump(updated_weekend, f, protocol=pickle.HIGHEST_PROTOCOL)
             sectors_info = f", {len(marshal_sectors)} sectors" if marshal_sectors else ""
             pit_info = f", pit={pit_lane.length:.0f}m" if pit_lane else ""
-            print(f"  ✓ Updated weekend with track geometry ({circuit_length_meters:.0f}m{sectors_info}{pit_info})")
+            logger.info(f"  ✓ Updated weekend with track geometry ({circuit_length_meters:.0f}m{sectors_info}{pit_info})")
         except Exception as e:
-            print(f"  ⚠ Could not update weekend cache: {e}")
+            logger.warning(f"  ⚠ Could not update weekend cache: {e}")
 
         return updated_weekend
 
@@ -502,14 +504,14 @@ class DataLoader:
             import shutil
             shutil.rmtree(self.cache_dir)
             self.cache_dir.mkdir(parents=True, exist_ok=True)
-            print(f"✓ Cleared all cache: {self.cache_dir}")
+            logger.info(f"✓ Cleared all cache: {self.cache_dir}")
         elif round_num is None:
             # Clear specific year
             year_dir = self.cache_dir / str(year)
             if year_dir.exists():
                 import shutil
                 shutil.rmtree(year_dir)
-                print(f"✓ Cleared cache for {year}")
+                logger.info(f"✓ Cleared cache for {year}")
         else:
             # Clear specific round
             event = self.get_event(year, round_num)
@@ -519,4 +521,4 @@ class DataLoader:
                 if round_dir.exists():
                     import shutil
                     shutil.rmtree(round_dir)
-                    print(f"✓ Cleared cache for {year} R{round_num}")
+                    logger.info(f"✓ Cleared cache for {year} R{round_num}")

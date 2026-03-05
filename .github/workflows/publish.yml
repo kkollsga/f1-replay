@@ -4,7 +4,7 @@ on:
   push:
     paths:
       - 'pyproject.toml'
-      - 'setup.py'
+      - 'tests/**'
       - 'f1_replay/**'
   workflow_dispatch: # Allow manual triggering
 
@@ -45,11 +45,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install build
-          pip install -e .
+          pip install -e ".[dev]"
 
-      - name: Test import
-        run: |
-          python -c "from f1_replay import DataLoader; print('Import successful')"
+      - name: Run tests
+        run: pytest tests/ -v --tb=short
 
   build:
     name: Build distribution

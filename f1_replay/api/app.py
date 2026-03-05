@@ -40,6 +40,7 @@ def fast_jsonify(data: dict, status: int = 200) -> Response:
 from f1_replay.managers import DataLoader
 from f1_replay.wrappers import RaceWeekend, Session, create_session
 from f1_replay.api.serializers import to_json_safe, serialize_telemetry
+from f1_replay.log import logger
 
 
 def _get_scheduled_session_info(data_loader: DataLoader, year: int, round_num: int, session_type: str) -> Optional[dict]:
@@ -119,7 +120,7 @@ def _get_scheduled_session_info(data_loader: DataLoader, year: int, round_num: i
         }
 
     except Exception as e:
-        print(f"Could not get scheduled info: {e}")
+        logger.warning(f"Could not get scheduled info: {e}")
         return None
 
 
@@ -255,8 +256,7 @@ def create_app(data_loader: DataLoader, current_session: Optional[Session] = Non
             })
 
         except Exception as e:
-            import traceback
-            traceback.print_exc()
+            logger.error(f"API error: {e}", exc_info=True)
             return jsonify({'error': str(e)}), 500
 
     @app.route('/api/session/<int:year>/<int:round_num>/<session_type>', methods=['GET'])
@@ -327,28 +327,9 @@ def create_app(data_loader: DataLoader, current_session: Optional[Session] = Non
                 # Cache for future requests
                 app.config['SESSION_CACHE'][cache_key] = session
 
-                # Print tier 3 session summary
-                print(f"\n{'='*60}")
-                print(f"TIER 3 SESSION DATA LOADED: {year} R{round_num} {session_type}")
-                print(f"{'='*60}")
-                print(f"Metadata:")
-                print(f"  session_type: {session.session_type}")
-                print(f"  year: {session.year}")
-                print(f"  round_number: {session.round_number}")
-                print(f"  event_name: {session.event_name}")
-                print(f"  drivers: {session.drivers}")
-                print(f"  track_length: {session.track_length}")
-                print(f"  total_laps: {session.total_laps}")
-                print(f"  t0_utc: {session.t0_utc}")
-                print(f"  start_time_local: {session.start_time_local}")
-                print(f"Telemetry: {len(session.telemetry)} drivers")
-                for drv, df in list(session.telemetry.items())[:3]:
-                    print(f"  {drv}: {len(df)} rows, columns={list(df.columns)[:8]}...")
-                print(f"Events:")
-                print(f"  track_status: {len(session.track_status) if session.track_status is not None else 0} events")
-                print(f"  race_control: {len(session.race_control) if session.race_control is not None else 0} events")
-                print(f"  weather: {len(session.weather) if session.weather is not None else 0} events")
-                print(f"{'='*60}\n")
+                logger.debug(f"TIER 3 SESSION DATA LOADED: {year} R{round_num} {session_type}")
+                logger.debug(f"  drivers: {session.drivers}, telemetry: {len(session.telemetry)} drivers")
+                logger.info(f"✓ Session loaded via API: {session.event_name} {session_type} ({len(session.drivers)} drivers)")
 
             # Get optional telemetry fields from query params
             telemetry_fields = None
@@ -366,8 +347,7 @@ def create_app(data_loader: DataLoader, current_session: Optional[Session] = Non
             })
 
         except Exception as e:
-            import traceback
-            traceback.print_exc()
+            logger.error(f"API error: {e}", exc_info=True)
             return jsonify({'error': str(e)}), 500
 
     # =========================================================================

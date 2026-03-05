@@ -25,6 +25,7 @@ import polars as pl
 
 from f1_replay.loaders.session.telemetry import TrackData
 from f1_replay.models import TrackGeometry
+from f1_replay.log import logger
 
 
 class LightTelemetryBuilder:
@@ -46,11 +47,11 @@ class LightTelemetryBuilder:
             TrackData with track and pit geometry, or None if failed
         """
         if not hasattr(f1_session, 'pos_data') or f1_session.pos_data is None:
-            print("  ⚠ No position data in session")
+            logger.warning("  ⚠ No position data in session")
             return None
 
         if not hasattr(f1_session, 'laps') or f1_session.laps is None:
-            print("  ⚠ No lap data in session")
+            logger.warning("  ⚠ No lap data in session")
             return None
 
         # Get driver's data
@@ -63,7 +64,7 @@ class LightTelemetryBuilder:
         driver_num = None
         driver_laps = laps[laps['Driver'] == driver_abbr].copy()
         if len(driver_laps) == 0:
-            print(f"  ⚠ No lap data for {driver_abbr}")
+            logger.warning(f"  ⚠ No lap data for {driver_abbr}")
             return None
 
         # Get driver number from first lap
@@ -71,25 +72,25 @@ class LightTelemetryBuilder:
             driver_num = driver_laps.iloc[0]['DriverNumber']
 
         if driver_num is None:
-            print(f"  ⚠ Could not find driver number for {driver_abbr}")
+            logger.warning(f"  ⚠ Could not find driver number for {driver_abbr}")
             return None
 
         # Extract driver's position data from dict
         if driver_num not in pos_data:
-            print(f"  ⚠ No position data for driver {driver_num} ({driver_abbr})")
+            logger.warning(f"  ⚠ No position data for driver {driver_num} ({driver_abbr})")
             return None
 
         driver_pos = pos_data[driver_num].copy()
         if len(driver_pos) == 0:
-            print(f"  ⚠ Empty position data for {driver_abbr}")
+            logger.warning(f"  ⚠ Empty position data for {driver_abbr}")
             return None
 
         # Build light telemetry
-        print(f"  → Building light telemetry for {driver_abbr}...")
+        logger.info(f"  → Building light telemetry for {driver_abbr}...")
         telemetry, pit_windows = LightTelemetryBuilder._build_light_telemetry(driver_pos, driver_laps)
 
         if telemetry is None or len(telemetry) == 0:
-            print("  ⚠ Failed to build telemetry")
+            logger.warning("  ⚠ Failed to build telemetry")
             return None
 
         # Extract driver's car data from dict
@@ -256,7 +257,7 @@ class LightTelemetryBuilder:
         # Extract track from racing laps (lap_number >= 1)
         racing = telemetry.filter(pl.col('lap_number') >= 1)
         if len(racing) == 0:
-            print("  ⚠ No racing telemetry found")
+            logger.warning("  ⚠ No racing telemetry found")
             return None
 
         # Find laps that have pit activity
@@ -286,7 +287,7 @@ class LightTelemetryBuilder:
 
         # Fallback: if no clean laps, try without excluding pit laps
         if len(lap_times) == 0:
-            print("  ⚠ No clean laps, falling back to any racing lap")
+            logger.warning("  ⚠ No clean laps, falling back to any racing lap")
             lap_times = racing.group_by('lap_number').agg([
                 pl.col('session_time').min().alias('start_time'),
                 pl.col('session_time').max().alias('end_time'),
@@ -296,7 +297,7 @@ class LightTelemetryBuilder:
             ).filter(pl.col('n_points') > 100).sort('lap_duration')
 
         if len(lap_times) == 0:
-            print("  ⚠ No valid laps found")
+            logger.warning("  ⚠ No valid laps found")
             return None
 
         best_lap = lap_times['lap_number'][0]
@@ -357,7 +358,7 @@ class LightTelemetryBuilder:
         track_dist_m = (track_dist / 10.0).astype(np.float32)
         lap_distance_m = lap_distance / 10.0
 
-        print(f"    ✓ Track from {driver} lap {best_lap} ({lap_duration:.1f}s): {len(track_x)} points, {lap_distance_m:.0f}m")
+        logger.info(f"    ✓ Track from {driver} lap {best_lap} ({lap_duration:.1f}s): {len(track_x)} points, {lap_distance_m:.0f}m")
 
         # Extract pit lane from winner's pit windows
         pit_x, pit_y = None, None
@@ -366,7 +367,7 @@ class LightTelemetryBuilder:
         pit_entry_dist, pit_exit_dist = None, None
 
         if not pit_windows or len(pit_windows) == 0:
-            print(f"    ⚠ {driver} did not pit - no pit lane extracted")
+            logger.warning(f"    ⚠ {driver} did not pit - no pit lane extracted")
 
         if pit_windows and len(pit_windows) > 0:
             # Get first pit stint
@@ -452,7 +453,7 @@ class LightTelemetryBuilder:
                     pit_distance = (np.cumsum(pit_distances) / 10.0).astype(np.float32)  # meters
                     pit_length = float(pit_distance[-1])
 
-                    print(f"    ✓ Pit lane from {driver}: {len(pit_x)} points, {pit_length:.0f}m (entry={pit_entry_dist:.0f}m, exit={pit_exit_dist:.0f}m)")
+                    logger.info(f"    ✓ Pit lane from {driver}: {len(pit_x)} points, {pit_length:.0f}m (entry={pit_entry_dist:.0f}m, exit={pit_exit_dist:.0f}m)")
 
         # Return TrackData
         return TrackData(
