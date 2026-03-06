@@ -29,6 +29,44 @@ def _format_date_range(start_date: str, end_date: str) -> str:
         return end_date[:10] if end_date else ""
 
 
+def _get_label_params(track_x, track_y, idx, distance=400):
+    """Find best label position near a track point, avoiding overlap with the track."""
+    n = len(track_x)
+    i_prev = (idx - 1) % n
+    i_next = (idx + 1) % n
+    dx = track_x[i_next] - track_x[i_prev]
+    dy = track_y[i_next] - track_y[i_prev]
+    length = np.sqrt(dx * dx + dy * dy)
+    if length == 0:
+        return track_x[idx] + distance, track_y[idx], 0
+    tx, ty = dx / length, dy / length
+    perp_left = (ty, -tx)
+    perp_right = (-ty, tx)
+
+    def min_track_distance(lx, ly):
+        dists = (track_x - lx) ** 2 + (track_y - ly) ** 2
+        return np.sqrt(np.min(dists))
+
+    best_pos = None
+    best_clearance = -1
+    for perp_x, perp_y in [perp_left, perp_right]:
+        for tang_offset in [50, -50, 100, -100, 0]:
+            lx = track_x[idx] + perp_x * distance + tx * tang_offset
+            ly = track_y[idx] + perp_y * distance + ty * tang_offset
+            clearance = min_track_distance(lx, ly)
+            if clearance > best_clearance:
+                best_clearance = clearance
+                best_pos = (lx, ly, tang_offset)
+
+    label_x, label_y, _ = best_pos
+    angle = np.degrees(np.arctan2(dy, dx))
+    if angle > 90:
+        angle -= 180
+    elif angle < -90:
+        angle += 180
+    return label_x, label_y, angle
+
+
 def plot_weekend(
     circuit: CircuitData,
     event: EventInfo,
@@ -153,43 +191,7 @@ def plot_weekend(
         max_idx = np.argmax(speed)
         min_idx = np.argmin(speed)
 
-        def get_label_params(idx, distance=400):
-            n = len(track_x)
-            i_prev = (idx - 1) % n
-            i_next = (idx + 1) % n
-            dx = track_x[i_next] - track_x[i_prev]
-            dy = track_y[i_next] - track_y[i_prev]
-            length = np.sqrt(dx * dx + dy * dy)
-            if length == 0:
-                return track_x[idx] + distance, track_y[idx], 0
-            tx, ty = dx / length, dy / length
-            perp_left = (ty, -tx)
-            perp_right = (-ty, tx)
-
-            def min_track_distance(lx, ly):
-                dists = (track_x - lx) ** 2 + (track_y - ly) ** 2
-                return np.sqrt(np.min(dists))
-
-            best_pos = None
-            best_clearance = -1
-            for perp_x, perp_y in [perp_left, perp_right]:
-                for tang_offset in [50, -50, 100, -100, 0]:
-                    lx = track_x[idx] + perp_x * distance + tx * tang_offset
-                    ly = track_y[idx] + perp_y * distance + ty * tang_offset
-                    clearance = min_track_distance(lx, ly)
-                    if clearance > best_clearance:
-                        best_clearance = clearance
-                        best_pos = (lx, ly, tang_offset)
-
-            label_x, label_y, _ = best_pos
-            angle = np.degrees(np.arctan2(dy, dx))
-            if angle > 90:
-                angle -= 180
-            elif angle < -90:
-                angle += 180
-            return label_x, label_y, angle
-
-        label_x, label_y, angle = get_label_params(max_idx)
+        label_x, label_y, angle = _get_label_params(track_x, track_y, max_idx)
         ax.plot(
             [track_x[max_idx], label_x],
             [track_y[max_idx], label_y],
@@ -211,7 +213,7 @@ def plot_weekend(
             zorder=11,
         )
 
-        label_x, label_y, angle = get_label_params(min_idx)
+        label_x, label_y, angle = _get_label_params(track_x, track_y, min_idx)
         ax.plot(
             [track_x[min_idx], label_x],
             [track_y[min_idx], label_y],
@@ -322,42 +324,6 @@ def plot_weekend(
         max_diff = z_m[max_idx] - ref_z
         min_diff = z_m[min_idx] - ref_z
 
-        def get_label_params(idx, distance=400):
-            n = len(track_x)
-            i_prev = (idx - 1) % n
-            i_next = (idx + 1) % n
-            dx = track_x[i_next] - track_x[i_prev]
-            dy = track_y[i_next] - track_y[i_prev]
-            length = np.sqrt(dx * dx + dy * dy)
-            if length == 0:
-                return track_x[idx] + distance, track_y[idx], 0
-            tx, ty = dx / length, dy / length
-            perp_left = (ty, -tx)
-            perp_right = (-ty, tx)
-
-            def min_track_distance(lx, ly):
-                dists = (track_x - lx) ** 2 + (track_y - ly) ** 2
-                return np.sqrt(np.min(dists))
-
-            best_pos = None
-            best_clearance = -1
-            for perp_x, perp_y in [perp_left, perp_right]:
-                for tang_offset in [50, -50, 100, -100, 0]:
-                    lx = track_x[idx] + perp_x * distance + tx * tang_offset
-                    ly = track_y[idx] + perp_y * distance + ty * tang_offset
-                    clearance = min_track_distance(lx, ly)
-                    if clearance > best_clearance:
-                        best_clearance = clearance
-                        best_pos = (lx, ly, tang_offset)
-
-            label_x, label_y, _ = best_pos
-            angle = np.degrees(np.arctan2(dy, dx))
-            if angle > 90:
-                angle -= 180
-            elif angle < -90:
-                angle += 180
-            return label_x, label_y, angle
-
         track_dist = circuit.track.distance
         lap_dist = circuit.track.lap_distance
         min_dist_from_sf = 100
@@ -378,7 +344,7 @@ def plot_weekend(
                 show_max = False
 
         if show_max and far_from_start_finish(max_idx):
-            label_x, label_y, angle = get_label_params(max_idx)
+            label_x, label_y, angle = _get_label_params(track_x, track_y, max_idx)
             ax.plot(
                 [track_x[max_idx], label_x],
                 [track_y[max_idx], label_y],
@@ -401,7 +367,7 @@ def plot_weekend(
             )
 
         if show_min and far_from_start_finish(min_idx):
-            label_x, label_y, angle = get_label_params(min_idx)
+            label_x, label_y, angle = _get_label_params(track_x, track_y, min_idx)
             ax.plot(
                 [track_x[min_idx], label_x],
                 [track_y[min_idx], label_y],

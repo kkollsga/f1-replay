@@ -71,6 +71,13 @@ def cmd_server(args):
     app.run(host=args.host, port=args.port, debug=not args.no_debug)
 
 
+def cmd_migrate_cache(args):
+    """Migrate legacy cache files with placeholder track geometry."""
+    from f1_replay.tools.migrate_cache import run_migration
+
+    run_migration(cache_dir=args.cache_dir, dry_run=args.dry_run)
+
+
 def cmd_seasons(args):
     """List available seasons and races."""
     from f1_replay.log import setup_logging
@@ -154,6 +161,20 @@ def main():
         help=f"Cache directory (default: {cache_dir_default})",
     )
     seasons_parser.set_defaults(func=cmd_seasons)
+
+    # === migrate-cache command ===
+    migrate_parser = subparsers.add_parser(
+        "migrate-cache", help="Migrate legacy cache files with placeholder tracks"
+    )
+    migrate_parser.add_argument(
+        "--dry-run", action="store_true", help="Show what would be migrated"
+    )
+    migrate_parser.add_argument(
+        "--cache-dir",
+        default=cache_dir_default,
+        help=f"Cache directory (default: {cache_dir_default})",
+    )
+    migrate_parser.set_defaults(func=cmd_migrate_cache)
 
     # Parse and run
     args = parser.parse_args()

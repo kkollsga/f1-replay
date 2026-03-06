@@ -361,6 +361,14 @@ class LightTelemetryBuilder:
             except Exception:
                 pass  # Skip if sampling fails
 
+        missing = [
+            c
+            for c in ("Speed", "Throttle", "Brake")
+            if c not in (car_df.columns if car_df is not None else [])
+        ]
+        if missing:
+            logger.debug(f"  Light telemetry: optional columns missing: {missing}")
+
         # Smooth wrap-around: blend last N points toward first point
         def smooth_wrap(arr, n_blend=10):
             if arr is None or len(arr) < n_blend * 2:

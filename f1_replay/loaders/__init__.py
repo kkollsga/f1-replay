@@ -11,6 +11,11 @@ Components:
 - TelemetryBuilder: Builds telemetry DataFrames
 - OrderBuilder: Builds position tracking data
 - WeatherExtractor: Extracts weather events
+
+Unit conventions:
+    Coordinates (x, y, z): decimeters (FastF1 native)
+    Track/race distances: meters (converted in WeekendProcessor)
+    Speed: km/h | Velocity vectors (vx, vy): dm/s
 """
 
 # Core FastF1 interface

@@ -713,6 +713,12 @@ class TelemetryBuilder:
                 np.float32
             )
 
+            # Warn if race_distance is not monotonically non-decreasing
+            rd_diff = np.diff(race_distance)
+            decreases = int(np.sum(rd_diff < -0.1))
+            if decreases > 0:
+                logger.warning(f"  ! {driver}: race_distance not monotonic ({decreases} decreases)")
+
             # Add/update columns to telemetry (status updated later by SessionProcessor)
             updated[driver] = (
                 tel.lazy()

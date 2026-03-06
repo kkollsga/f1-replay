@@ -21,6 +21,29 @@ pip install f1-replay
 
 ---
 
+## Architecture
+
+```mermaid
+graph LR
+    A[FastF1 API] --> B[Loaders]
+    B --> C[Models]
+    C --> D[Manager]
+    D --> E[Flask API]
+    E --> F[Web Viewer]
+```
+
+Data flows through a **3-tier pipeline** with pickle caching at each level:
+
+| Tier | Scope | Cache File | Contents |
+|------|-------|------------|----------|
+| 1 | Season | `seasons.pkl` | All events per year |
+| 2 | Weekend | `Weekend.pkl` | Circuit geometry, pit lane, corners |
+| 3 | Session | `Race.pkl` etc. | Telemetry, events, results |
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full deep-dive.
+
+---
+
 ## Quick Start
 
 ```python
@@ -136,11 +159,32 @@ f1-replay race 2024 monaco
 f1-replay race 2024 8 --port 8080
 ```
 
-The viewer displays:
+The viewer includes:
 
-- 2D track map with animated car positions
-- Driver colors and identification
-- Race progression from telemetry data
+- 2D track map with animated car positions and driver colors
+- Live standings with position tracking, gap times, and tyre compounds
+- Strategy panel with tyre stint bars and pit stop markers
+- Lap time chart overlay (top 5 + chased driver)
+- Starting lights animation and formation lap
+- Track status overlays (safety car, VSC, red flag, sector yellows)
+- Rain overlay with particle animation
+- Race control message feed
+- Chase mode (follow individual driver with auto-zoom)
+- Pan/zoom with mouse, session tabs (switch R/Q/FP)
+- Qualifying results view with delta to pole
+- Data export (CSV/JSON)
+
+### Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `Space` | Play / Pause |
+| `Left` / `Right` | Seek 10 seconds |
+| `Shift+Left` / `Shift+Right` | Seek 60 seconds |
+| `+` / `-` | Increase / Decrease playback speed |
+| `C` or `Escape` | Exit chase mode |
+| `L` | Toggle lap time chart |
+| `S` | Toggle strategy panel |
 
 ---
 
@@ -159,6 +203,9 @@ f1-replay server [--port PORT]
 # Configuration
 f1-replay config                          # Show current config
 f1-replay config --set-cache-dir /path    # Set cache directory
+
+# Migrate legacy cache files
+f1-replay migrate-cache [--dry-run]
 ```
 
 ---
@@ -183,7 +230,7 @@ export F1_REPLAY_CACHE_DIR=/path/to/data
 
 ## Cache Structure
 
-```
+```text
 race_data/
 ├── seasons.pkl
 └── 2024/
@@ -196,13 +243,24 @@ race_data/
 
 ---
 
+## Development
+
+```bash
+git clone https://github.com/your-org/f1-replay.git && cd f1-replay
+make install   # pip install -e ".[dev,all]"
+make check     # lint + tests (196 tests)
+make format    # auto-format code
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development guide and [docs/](docs/index.md) for architecture, API, and telemetry reference.
+
+---
+
 ## Requirements
 
 - Python 3.9+
-- FastF1
-- Flask
-- Polars
-- Matplotlib
+- FastF1, Flask, Polars, NumPy, SciPy, Pandas
+- Optional: matplotlib (circuit plots), orjson (faster JSON), flask-cors
 
 ## License
 

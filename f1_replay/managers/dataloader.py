@@ -14,17 +14,13 @@ from f1_replay.loaders.core.client import FastF1Client
 from f1_replay.loaders.core.mapping import to_fastf1_code, to_user_friendly
 from f1_replay.loaders.seasons.processor import SeasonsCatalog, SeasonsProcessor
 from f1_replay.loaders.session.processor import SessionProcessor
-from f1_replay.loaders.weekend.processor import WeekendProcessor, get_manual_rotation
+from f1_replay.loaders.weekend.processor import WeekendProcessor
 from f1_replay.log import logger
 from f1_replay.models import (
-    CircuitData,
-    DirectionArrow,
     EventInfo,
     F1Weekend,
     LoadResult,
-    PitLane,
     RaceResults,
-    TrackGeometry,
 )
 
 
@@ -335,160 +331,6 @@ class DataLoader:
         This is a pass-through to fastf1_client for Manager orchestration.
         """
         return self.fastf1_client.get_session_with_all_data(year, round_num, session_type)
-
-    # =========================================================================
-    # Helpers
-    # =========================================================================
-
-    def update_weekend_track(
-        self, weekend: F1Weekend, track_data, location_dir: str, rotation: Optional[float] = None
-    ) -> F1Weekend:
-        """
-        Update weekend's CircuitData with extracted track geometry.
-
-        LEGACY: Only used for backward compatibility when Weekend.pkl has placeholder track.
-        New flow builds complete track during WeekendProcessor.build_weekend().
-
-        Args:
-            weekend: Current F1Weekend
-            track_data: TrackData from TelemetryBuilder
-            location_dir: Directory name for caching
-            rotation: Optional rotation override (used when pulling from historical data)
-
-        Returns:
-            Updated F1Weekend with track geometry
-        """
-        import numpy as np
-
-        from f1_replay.models import MarshalSector
-
-        # Convert distances from decimeters to meters
-        circuit_length_meters = track_data.lap_distance / 10.0
-        distance_meters = (
-            track_data.track_distance / 10.0 if track_data.track_distance is not None else None
-        )
-
-        # Convert marshal sector tuples to MarshalSector objects
-        marshal_sectors = []
-        if track_data.marshal_sectors:
-            for sector_num, from_dist, to_dist in track_data.marshal_sectors:
-                marshal_sectors.append(
-                    MarshalSector(number=sector_num, start_distance=from_dist, end_distance=to_dist)
-                )
-
-        # Build TrackGeometry from track_data (with meters)
-        track = TrackGeometry(
-            x=track_data.track_x,
-            y=track_data.track_y,
-            distance=distance_meters.astype(np.float32) if distance_meters is not None else None,
-            lap_distance=circuit_length_meters,
-            marshal_sectors=marshal_sectors,
-            speed=track_data.speed,
-            throttle=track_data.throttle,
-            brake=track_data.brake,
-            z=track_data.track_z,
-        )
-
-        # Build pit lane with entry/exit distances
-        pit_lane = None
-        if track_data.pit_x is not None and len(track_data.pit_x) > 0:
-            pit_lane = PitLane(
-                x=track_data.pit_x,
-                y=track_data.pit_y,
-                distance=track_data.pit_distance,
-                length=track_data.pit_length,
-                entry_track_dist=track_data.pit_entry_distance or 0.0,
-                exit_track_dist=track_data.pit_exit_distance or 0.0,
-            )
-
-        # Calculate direction arrow at start/finish (opposite side of pitlane)
-        direction_arrow = None
-        if track_data.track_x is not None and len(track_data.track_x) > 1:
-            # Track direction at start/finish (from point 0 to point 1)
-            dx = track_data.track_x[1] - track_data.track_x[0]
-            dy = track_data.track_y[1] - track_data.track_y[0]
-            length = np.sqrt(dx * dx + dy * dy)
-            if length > 0:
-                # Unit vector in racing direction
-                dir_x, dir_y = dx / length, dy / length
-                # Perpendicular (both sides)
-                perp_x, perp_y = -dir_y, dir_x  # Left side
-
-                # Determine which side is opposite the pitlane
-                arrow_offset = 200  # Distance from track centerline (decimeters)
-                left_x = track_data.track_x[0] + perp_x * arrow_offset
-                left_y = track_data.track_y[0] + perp_y * arrow_offset
-                right_x = track_data.track_x[0] - perp_x * arrow_offset
-                right_y = track_data.track_y[0] - perp_y * arrow_offset
-
-                # Check distance to pit lane to pick opposite side
-                # Use nearest pit point to start/finish (not center, which can be misleading)
-                if (
-                    pit_lane is not None
-                    and track_data.pit_x is not None
-                    and len(track_data.pit_x) > 0
-                ):
-                    # Find pit point nearest to start/finish line
-                    start_x, start_y = track_data.track_x[0], track_data.track_y[0]
-                    pit_dists = (track_data.pit_x - start_x) ** 2 + (
-                        track_data.pit_y - start_y
-                    ) ** 2
-                    nearest_idx = np.argmin(pit_dists)
-                    pit_near_x = track_data.pit_x[nearest_idx]
-                    pit_near_y = track_data.pit_y[nearest_idx]
-
-                    dist_left = (left_x - pit_near_x) ** 2 + (left_y - pit_near_y) ** 2
-                    dist_right = (right_x - pit_near_x) ** 2 + (right_y - pit_near_y) ** 2
-                    # Pick side farther from pit (opposite side)
-                    if dist_left > dist_right:
-                        arrow_x, arrow_y = left_x, left_y
-                    else:
-                        arrow_x, arrow_y = right_x, right_y
-                else:
-                    # No pit lane, default to left side
-                    arrow_x, arrow_y = left_x, left_y
-
-                direction_arrow = DirectionArrow(
-                    x=float(arrow_x), y=float(arrow_y), dx=float(dir_x), dy=float(dir_y)
-                )
-
-        # Create updated CircuitData
-        # Priority: manual override > weekend's rotation > historical rotation
-        manual_rot = get_manual_rotation(weekend.circuit.name)
-        if manual_rot is not None:
-            final_rotation = manual_rot
-        elif weekend.circuit.rotation != 0:
-            final_rotation = weekend.circuit.rotation
-        else:
-            final_rotation = rotation if rotation is not None else 0.0
-        new_circuit = CircuitData(
-            track=track,
-            pit_lane=pit_lane,
-            circuit_length=circuit_length_meters,
-            corners=weekend.circuit.corners,
-            rotation=final_rotation,
-            name=weekend.circuit.name,
-            direction_arrow=direction_arrow,
-            metadata=weekend.circuit.metadata,
-        )
-
-        # Create updated weekend
-        updated_weekend = F1Weekend(event=weekend.event, circuit=new_circuit)
-
-        # Re-cache weekend with track data
-        weekend_path = self.cache_dir / str(weekend.year) / location_dir / "Weekend.pkl"
-        try:
-            with open(weekend_path, "wb") as f:
-                pickle.dump(updated_weekend, f, protocol=pickle.HIGHEST_PROTOCOL)
-            sectors_info = f", {len(marshal_sectors)} sectors" if marshal_sectors else ""
-            pit_info = f", pit={pit_lane.length:.0f}m" if pit_lane else ""
-            logger.info(
-                f"  ✓ Updated weekend with track geometry ({circuit_length_meters:.0f}m{sectors_info}{pit_info})"
-            )
-        except Exception as e:
-            logger.warning(f"  ⚠ Could not update weekend cache: {e}")
-
-        return updated_weekend
 
     def get_event(self, year: int, round_num: int) -> Optional[EventInfo]:
         """Get EventInfo from seasons catalog."""
