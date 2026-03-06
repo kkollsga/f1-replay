@@ -1,15 +1,26 @@
 # f1-replay Documentation
 
-## Reference
+Formula 1 data analysis and race replay visualization.
 
-- **[Architecture](ARCHITECTURE.md)** -- Data pipeline, layer descriptions, telemetry processing, caching, frontend
-- **[API Reference](API.md)** -- REST endpoints, Python API, CLI commands
-- **[Telemetry Reference](TELEMETRY.md)** -- Column definitions, units, processing pipeline, interpolation
+```{toctree}
+:maxdepth: 2
+:caption: Guides
+
+API
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: Reference
+
+python-api
+ARCHITECTURE
+TELEMETRY
+```
 
 ## Project
 
-- **[Contributing](../CONTRIBUTING.md)** -- Development setup, code style, testing, PR process
-- **[README](../README.md)** -- Quick start, installation, features overview
+- Contributing Guide -- see `CONTRIBUTING.md` in the repository root
 
 ## External Links
 

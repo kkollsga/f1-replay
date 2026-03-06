@@ -1,4 +1,4 @@
-.PHONY: install test test-cov lint format check clean run
+.PHONY: install test test-cov lint format check clean run docs
 
 install:
 	pip install -e ".[dev,all]"
@@ -20,8 +20,11 @@ format:
 
 check: lint test
 
+docs:
+	sphinx-build -b html docs docs/_build
+
 clean:
-	rm -rf build/ dist/ *.egg-info .pytest_cache .coverage htmlcov/
+	rm -rf build/ dist/ *.egg-info .pytest_cache .coverage htmlcov/ docs/_build/
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 
 run:

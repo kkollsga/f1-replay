@@ -35,6 +35,7 @@ htmlcov/
 # Build artifacts
 build/
 dist/
+docs/_build/
 *.egg-info/
 .eggs/
 

@@ -11,7 +11,7 @@ Thank you for your interest in contributing! This guide will help you get set up
 ## Development Setup
 
 ```bash
-git clone https://github.com/your-org/f1-replay.git
+git clone https://github.com/kkollsga/f1-replay.git
 cd f1-replay
 
 # Create and activate a virtual environment
@@ -90,7 +90,9 @@ When you modify these areas, please update the corresponding documentation:
 
 | Change | Update |
 |--------|--------|
-| API routes (`api/routes/`) | [docs/API.md](docs/API.md) |
+| Python API (public classes/methods) | Docstrings auto-update [python-api.rst](docs/python-api.rst) |
+| New public class/method | Add to [docs/python-api.rst](docs/python-api.rst) |
+| REST API routes (`api/routes/`) | [docs/API.md](docs/API.md) REST API section |
 | Telemetry columns (`loaders/session/telemetry.py`) | [docs/TELEMETRY.md](docs/TELEMETRY.md) |
 | New CLI commands (`api/cli.py`) | [docs/API.md](docs/API.md) CLI section |
 | Architecture changes | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |

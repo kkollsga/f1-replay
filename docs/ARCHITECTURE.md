@@ -12,7 +12,7 @@ All data is stored as **frozen dataclasses** (immutable), cached as **pickle fil
 
 ## Data Pipeline
 
-```mermaid
+```{mermaid}
 flowchart TD
     F1[FastF1 API] --> Client[FastF1Client]
 
