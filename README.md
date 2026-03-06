@@ -1,22 +1,28 @@
-# f1-replay
+# F1-Replay — Interactive Formula 1 Race Replay & Circuit Visualization
 
 [![PyPI version](https://badge.fury.io/py/f1-replay.svg)](https://badge.fury.io/py/f1-replay)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Documentation](https://readthedocs.org/projects/f1-replay/badge/?version=latest)](https://f1-replay.readthedocs.io/en/latest/)
 
-A Python toolkit for Formula 1 data analysis and visualization. Built on [FastF1](https://github.com/theOehrly/Fast-F1) with intelligent caching, circuit plotting, and interactive race replay.
+Replay any historic Formula 1 race as an animated 2D map with real telemetry data, live timing, strategy overlays, and circuit visualizations. Built on [FastF1](https://github.com/theOehrly/Fast-F1) with intelligent caching and a Flask-based viewer.
 
-## Installation
+## Why F1-Replay?
+
+- **Watch any race** — Animated car positions on a real circuit map with sub-second telemetry
+- **Live timing overlay** — Gap times, position changes, pit stops, and tyre strategy in real time
+- **Track status** — Safety car, VSC, red flag overlays and rain effects rendered on canvas
+- **Circuit posters** — Generate publication-quality circuit maps colored by speed, sectors, throttle, brake, or elevation
+- **One command** — `f1-replay 2024 monaco` and you're watching the race in your browser
+- **Python API** — Full programmatic access to seasons, weekends, sessions, and telemetry DataFrames (Polars)
+
+## Quick Start
 
 ```bash
 pip install f1-replay
 ```
 
-## Quick Start
-
 ### Race Replay
-
-Watch any historic race with an interactive 2D viewer:
 
 ```python
 from f1_replay import Manager
@@ -31,11 +37,9 @@ Or from the command line:
 f1-replay 2024 monaco
 ```
 
-The viewer includes animated car positions, live standings with gap times, strategy panel, track status overlays (safety car, VSC, red flags), rain effects, race control messages, and more.
+Opens an interactive viewer at `http://localhost:8080` with animated car positions, live standings, strategy panel, race control messages, and more.
 
 ### Circuit Plotting
-
-Generate poster-style circuit maps:
 
 ```python
 mgr = Manager()
@@ -63,10 +67,10 @@ f1-replay config --set-cache-dir /data # Set cache location
 
 Full documentation at **[f1-replay.readthedocs.io](https://f1-replay.readthedocs.io/en/latest/)**
 
-- [Usage Guide](https://f1-replay.readthedocs.io/en/latest/API.html) -- Loading data, circuit plots, race viewer, telemetry, CLI, REST API
-- [Python API Reference](https://f1-replay.readthedocs.io/en/latest/python-api.html) -- Auto-generated method documentation
-- [Architecture](https://f1-replay.readthedocs.io/en/latest/ARCHITECTURE.html) -- Data pipeline, caching strategy, frontend design
-- [Telemetry Reference](https://f1-replay.readthedocs.io/en/latest/TELEMETRY.html) -- Column definitions, units, processing pipeline
+- [Usage Guide](https://f1-replay.readthedocs.io/en/latest/API.html) — Data loading, circuit plots, race viewer, telemetry, CLI, REST API
+- [Python API Reference](https://f1-replay.readthedocs.io/en/latest/python-api.html) — Auto-generated from docstrings
+- [Architecture](https://f1-replay.readthedocs.io/en/latest/ARCHITECTURE.html) — Data pipeline, caching, frontend design
+- [Telemetry Reference](https://f1-replay.readthedocs.io/en/latest/TELEMETRY.html) — Column definitions, units, processing
 
 ## Development
 
@@ -78,12 +82,6 @@ make docs      # build Sphinx documentation
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development guide.
-
-## Requirements
-
-- Python 3.9+
-- FastF1, Flask, Polars, NumPy, SciPy, Pandas
-- Optional: matplotlib (circuit plots), orjson (faster JSON), flask-cors
 
 ## License
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "f1-replay"
-version = "0.1.17"
+version = "0.1.18"
 description = "Formula 1 Race Replay and Visualization Library"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -12,10 +12,15 @@ license = {text = "MIT"}
 authors = [
     {name = "F1 Replay Development"}
 ]
-keywords = ["formula1", "f1", "racing", "replay", "visualization", "telemetry"]
+keywords = [
+    "formula1", "f1", "race-replay", "telemetry", "fastf1",
+    "motorsport", "circuit-map", "data-visualization", "live-timing",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Visualization",
     "Topic :: Software Development :: Libraries",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
