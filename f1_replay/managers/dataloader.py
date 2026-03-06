@@ -35,13 +35,18 @@ class DataLoader:
         session = loader.load_session(2024, 1, "Race")  # TIER 3
     """
 
-    def __init__(self, cache_dir: str = "race_data"):
+    def __init__(self, cache_dir: str = None):
         """
         Initialize DataLoader.
 
         Args:
-            cache_dir: Directory for caching (default: "race_data")
+            cache_dir: Directory for caching. If None, uses system default
+                (~/Documents/f1-replay on macOS/Windows, ~/.local/share/f1-replay on Linux).
         """
+        if cache_dir is None:
+            from f1_replay.config import get_cache_dir
+
+            cache_dir = get_cache_dir()
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 

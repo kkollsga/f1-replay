@@ -239,7 +239,7 @@ Priority (highest wins):
 
 1. `F1_REPLAY_CACHE_DIR` environment variable
 2. `~/.f1replay/config.json` `cache_dir` key
-3. Default: `./race_data`
+3. Default: `~/Documents/f1-replay` (macOS/Windows) or `~/.local/share/f1-replay` (Linux)
 
 ### Cache Behavior
 

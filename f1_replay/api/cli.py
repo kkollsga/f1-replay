@@ -123,7 +123,7 @@ def main():
     race_parser.add_argument("year", type=int, help="Season year (e.g., 2024)")
     race_parser.add_argument("round", help="Round number or event name (e.g., 8 or 'monaco')")
     race_parser.add_argument("--host", default="0.0.0.0", help="Host (default: 0.0.0.0)")
-    race_parser.add_argument("--port", "-p", type=int, default=5000, help="Port (default: 5000)")
+    race_parser.add_argument("--port", "-p", type=int, default=8080, help="Port (default: 8080)")
     race_parser.add_argument("--no-debug", action="store_true", help="Disable debug mode")
     race_parser.add_argument(
         "--force-update", "-f", action="store_true", help="Force reload from FastF1"
@@ -143,7 +143,7 @@ def main():
     # === server command ===
     server_parser = subparsers.add_parser("server", help="Run standalone API server")
     server_parser.add_argument("--host", default="0.0.0.0", help="Host (default: 0.0.0.0)")
-    server_parser.add_argument("--port", "-p", type=int, default=5000, help="Port (default: 5000)")
+    server_parser.add_argument("--port", "-p", type=int, default=8080, help="Port (default: 8080)")
     server_parser.add_argument("--no-debug", action="store_true", help="Disable debug mode")
     server_parser.add_argument(
         "--cache-dir",
@@ -177,6 +177,11 @@ def main():
     migrate_parser.set_defaults(func=cmd_migrate_cache)
 
     # Parse and run
+    # If first arg looks like a year (4-digit number) and no subcommand matches,
+    # treat it as shorthand: f1-replay 2024 4 → f1-replay race 2024 4
+    if len(sys.argv) > 1 and sys.argv[1].isdigit() and len(sys.argv[1]) == 4:
+        sys.argv.insert(1, "race")
+
     args = parser.parse_args()
 
     if args.command is None:

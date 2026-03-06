@@ -5,17 +5,33 @@ Config priority: Environment variable > Config file > Default
 
 Config file location: ~/.f1replay/config.json
 Environment variable: F1_REPLAY_CACHE_DIR
+Default cache: ~/Documents/f1-replay (macOS/Windows) or ~/.local/share/f1-replay (Linux)
 """
 
 import json
 import os
+import sys
 from pathlib import Path
 
-# Default values
-DEFAULT_CACHE_DIR = "race_data"
 CONFIG_DIR = Path.home() / ".f1replay"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 ENV_CACHE_DIR = "F1_REPLAY_CACHE_DIR"
+
+
+def _default_cache_dir() -> str:
+    """Platform-appropriate default cache directory.
+
+    Returns:
+        macOS / Windows: ~/Documents/f1-replay
+        Linux: ~/.local/share/f1-replay
+    """
+    if sys.platform == "darwin" or sys.platform == "win32":
+        return str(Path.home() / "Documents" / "f1-replay")
+    # Linux / other: XDG data dir
+    xdg = os.environ.get("XDG_DATA_HOME")
+    if xdg:
+        return str(Path(xdg) / "f1-replay")
+    return str(Path.home() / ".local" / "share" / "f1-replay")
 
 
 def get_config_dir() -> Path:
@@ -59,7 +75,7 @@ def get_cache_dir() -> str:
         return config["cache_dir"]
 
     # 3. Default
-    return DEFAULT_CACHE_DIR
+    return _default_cache_dir()
 
 
 def set_cache_dir(path: str) -> None:

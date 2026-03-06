@@ -106,7 +106,7 @@ For lower-level control over data loading and caching:
 ```python
 from f1_replay import DataLoader
 
-loader = DataLoader(cache_dir="race_data")
+loader = DataLoader()  # uses ~/Documents/f1-replay by default
 
 seasons = loader.load_seasons()
 weekend = loader.load_weekend(year, round_num, event)
@@ -281,12 +281,12 @@ get_cache_dir()                   # Current cache directory
 export F1_REPLAY_CACHE_DIR=/path/to/data
 ```
 
-**Priority order:** Environment variable > Config file (`~/.f1replay/config.json`) > Default (`./race_data`)
+**Priority order:** Environment variable > Config file (`~/.f1replay/config.json`) > Default (`~/Documents/f1-replay`)
 
 ### Cache Structure
 
 ```text
-race_data/
+~/Documents/f1-replay/
 ├── seasons.pkl
 └── 2024/
     └── 08_Monaco/

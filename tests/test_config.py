@@ -2,7 +2,7 @@
 
 import json
 
-from f1_replay.config import DEFAULT_CACHE_DIR, _get_cache_dir_source, get_cache_dir, set_cache_dir
+from f1_replay.config import _default_cache_dir, _get_cache_dir_source, get_cache_dir, set_cache_dir
 
 
 class TestGetCacheDir:
@@ -12,7 +12,7 @@ class TestGetCacheDir:
         """Default value when no env or config file."""
         monkeypatch.delenv("F1_REPLAY_CACHE_DIR", raising=False)
         monkeypatch.setattr("f1_replay.config.CONFIG_FILE", tmp_path / "nonexistent.json")
-        assert get_cache_dir() == DEFAULT_CACHE_DIR
+        assert get_cache_dir() == _default_cache_dir()
 
     def test_env_variable(self, monkeypatch, tmp_path):
         """Environment variable takes highest priority."""

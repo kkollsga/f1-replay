@@ -703,7 +703,7 @@ class Manager:
         year: Optional[int] = None,
         round_num_or_name: Optional[Union[int, str]] = None,
         host: str = "0.0.0.0",
-        port: int = 5001,
+        port: int = 8080,
         debug: bool = True,
         force_update: bool = False,
     ) -> None:
@@ -723,7 +723,7 @@ class Manager:
             year: Season year (optional if weekend with race already loaded)
             round_num_or_name: Round number (int) or event name (str)
             host: Host to bind Flask app (default: '0.0.0.0')
-            port: Port to run Flask app (default: 5000)
+            port: Port to run Flask app (default: 8080)
             debug: Enable Flask debug mode (default: True)
             force_update: Force rebuild all data from FastF1 (default: False)
         """
@@ -781,7 +781,7 @@ class Manager:
         year: int,
         round_num_or_name: Union[int, str],
         host: str = "0.0.0.0",
-        port: int = 5001,
+        port: int = 8080,
         debug: bool = True,
         force_update: bool = False,
     ) -> None:
@@ -792,7 +792,7 @@ class Manager:
             year: Season year
             round_num_or_name: Round number (int) or event name (str)
             host: Host to bind Flask app (default: '0.0.0.0')
-            port: Port to run Flask app (default: 5000)
+            port: Port to run Flask app (default: 8080)
             debug: Enable Flask debug mode (default: True)
             force_update: Force rebuild all data from FastF1 (default: False)
         """
