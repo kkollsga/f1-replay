@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "f1-replay"
-version = "0.1.16"
+version = "0.1.17"
 description = "Formula 1 Race Replay and Visualization Library"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -56,7 +56,7 @@ where = ["."]
 include = ["f1_replay*"]
 
 [tool.setuptools.package-data]
-"f1_replay" = ["api/templates/**"]
+"f1_replay" = ["api/templates/**", "api/static/**"]
 
 [tool.black]
 line-length = 100
