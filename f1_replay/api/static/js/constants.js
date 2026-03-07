@@ -23,6 +23,17 @@ const SECTOR_STATUS_COLORS = {
     'DoubleYellow': '#FFA500',  // Orange (more urgent)
 };
 
+// Qualifying phase settings
+const QUALIFYING_SETTINGS = {
+    Q1: { duration: 18 * 60, eliminateFrom: 16 },
+    Q2: { duration: 15 * 60, eliminateFrom: 11 },
+    Q3: { duration: 12 * 60, eliminateFrom: 0 },
+    // Laps slower than fastest * this factor are out/in laps
+    maxValidLapFactor: 1.15,
+    // Race control message pattern for chequered flag per phase
+    chequeredPattern: /FIRST CAR TO TAKE THE FLAG/i,
+};
+
 // Starting Lights Settings
 const STARTING_LIGHTS_SETTINGS = {
     enabled: true,

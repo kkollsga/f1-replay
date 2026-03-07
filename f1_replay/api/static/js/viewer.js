@@ -1034,16 +1034,28 @@ class F1RaceViewer {
         this.strategyView = false;
         this.lapChartVisible = false;
         const tabToggle = document.getElementById('sidebarTabToggle');
-        if (this.showStrategyTab || this.isQualifying) {
+        if (this.showStrategyTab) {
             tabToggle.style.display = 'flex';
-            const stratBtn = tabToggle.querySelector('[data-tab="strategy"]');
-            if (stratBtn) stratBtn.textContent = this.isQualifying ? 'Results' : 'Strat';
         } else {
             tabToggle.style.display = 'none';
         }
 
-        // Render pit stop dots on progress bar
+        // Initialize qualifying manager
+        if (this.isQualifying) {
+            this.qualifyingManager = new QualifyingManager(
+                this.raceControlEvents,
+                this.trackStatusEvents,
+                this.drivers,
+                this.lightsOutTime
+            );
+            this.qualifyingManager.setTelemetryData(this.driverLapTimes);
+        }
+
+        // Render pit stop dots / phase markers on progress bar
         this.renderPitStopDots();
+        if (this.isQualifying && this.qualifyingManager) {
+            this.renderQualifyingPhaseMarkers();
+        }
     }
 
     // Extract stints, pit stops, and lap times from telemetry (called once per session)
@@ -1945,7 +1957,141 @@ class F1RaceViewer {
         return { x, y, progress, interval, compound, tyreLife, status };
     }
 
+    updateQualifyingStandings() {
+        const qm = this.qualifyingManager;
+        const phase = qm.getCurrentPhase(this.currentTime);
+        const phaseName = phase ? phase.name : qm.getPhaseLabel(this.currentTime);
+        const eliminated = qm.getEliminatedDrivers(this.currentTime);
+
+        // Get best laps for current (or most recent) phase
+        let activePhaseName = phase?.name;
+        if (!activePhaseName) {
+            // During intermission, show results from last completed phase
+            for (let i = qm.phases.length - 1; i >= 0; i--) {
+                if (this.currentTime > qm.phases[i].end) {
+                    activePhaseName = qm.phases[i].name;
+                    break;
+                }
+            }
+            if (!activePhaseName) activePhaseName = 'Q1';
+        }
+
+        const bestLaps = qm.getBestLapsInPhase(activePhaseName, this.currentTime);
+        const bestLapMap = new Map(bestLaps.map(r => [r.driver, r]));
+
+        // Build sorted driver list: active with times, active without times, eliminated
+        const activeWithTime = [];
+        const activeNoTime = [];
+        const eliminatedList = [];
+
+        for (const driver of this.drivers) {
+            const code = driver.code;
+            const isElim = eliminated.has(code);
+            const lapData = bestLapMap.get(code);
+
+            if (isElim) {
+                eliminatedList.push({ code, lapData, phase: qm.getEliminationPhase(code) });
+            } else if (lapData) {
+                activeWithTime.push({ code, lapData });
+            } else {
+                activeNoTime.push({ code });
+            }
+        }
+
+        // Sort active by lap time
+        activeWithTime.sort((a, b) => a.lapData.time - b.lapData.time);
+
+        // Build final order
+        const ordered = [
+            ...activeWithTime.map((d, i) => ({ ...d, pos: i + 1, type: 'active' })),
+            ...activeNoTime.map((d, i) => ({ ...d, pos: activeWithTime.length + i + 1, type: 'notime' })),
+            ...eliminatedList.map(d => ({ ...d, type: 'eliminated' })),
+        ];
+
+        // Check if order changed
+        const orderKey = ordered.map(d => d.code).join(',');
+        const orderChanged = orderKey !== this._prevQualiOrder || this._prevQualiPhase !== activePhaseName;
+
+        const standings = document.getElementById('standings');
+
+        if (orderChanged) {
+            standings.innerHTML = '';
+            const poleTime = activeWithTime.length > 0 ? activeWithTime[0].lapData.time : 0;
+
+            ordered.forEach((entry, idx) => {
+                const driver = this.drivers.find(d => d.code === entry.code);
+                const color = driver?.color || '#CCCCCC';
+                const row = document.createElement('div');
+                row.className = 'driver-row';
+                row.dataset.driver = entry.code;
+                row.style.cursor = 'pointer';
+
+                if (entry.type === 'eliminated') {
+                    row.classList.add('eliminated');
+                }
+                if (idx === 0 && entry.type === 'active') {
+                    row.classList.add('leader');
+                }
+                if (this.chaseMode === entry.code) {
+                    row.style.backgroundColor = 'rgba(255, 255, 255, 0.15)';
+                    row.style.borderLeft = '3px solid #FFD700';
+                    row.style.paddingLeft = '11px';
+                }
+
+                let timeDisplay, deltaDisplay;
+                if (entry.type === 'active' && entry.lapData) {
+                    timeDisplay = this.formatLapTime(entry.lapData.time);
+                    deltaDisplay = entry.lapData.delta === 0
+                        ? `<span style="color:#FFD700">P1</span>`
+                        : `<span style="color:#888">+${entry.lapData.delta.toFixed(3)}</span>`;
+                } else if (entry.type === 'eliminated' && entry.lapData) {
+                    timeDisplay = this.formatLapTime(entry.lapData.time);
+                    deltaDisplay = `<span style="color:#666">${entry.phase}</span>`;
+                } else {
+                    timeDisplay = '<span style="color:#555">NO TIME</span>';
+                    deltaDisplay = '';
+                }
+
+                const posNum = entry.type === 'eliminated' ? '' : entry.pos;
+                row.innerHTML = `
+                    <div class="driver-position">${posNum}</div>
+                    <div class="driver-color" style="background: ${color}"></div>
+                    <div class="driver-info">
+                        <div class="driver-header">
+                            <div class="driver-name">${entry.code}</div>
+                            <div class="driver-timing" style="font-family:monospace;font-size:${STANDINGS_SETTINGS.timeSize}">
+                                ${timeDisplay}
+                            </div>
+                        </div>
+                        <div class="driver-detail" style="font-size:9px;text-align:right">
+                            ${deltaDisplay}
+                        </div>
+                    </div>
+                `;
+
+                row.addEventListener('click', () => this.toggleChaseMode(entry.code));
+                standings.appendChild(row);
+            });
+
+            this._prevQualiOrder = orderKey;
+            this._prevQualiPhase = activePhaseName;
+        }
+
+        // Update chase mode position display
+        if (this.chaseMode) {
+            const positions = this.getDriversAtTime();
+            if (positions.length > 0) this.updateChaseModePosition(positions);
+        }
+
+        this.updateRaceMessages();
+        this.updateFastestLapIndicatorPositions();
+    }
+
     updateStandings() {
+        if (this.isQualifying && this.qualifyingManager) {
+            this.updateQualifyingStandings();
+            return;
+        }
         const positions = this.getDriversAtTime();
 
         // Update standings mode (time/tire cycling)
@@ -2309,6 +2455,32 @@ class F1RaceViewer {
             dot.style.left = `${pct}%`;
             dot.style.background = pit.color;
             track.appendChild(dot);
+        }
+    }
+
+    renderQualifyingPhaseMarkers() {
+        const track = document.getElementById('raceProgressTrack');
+        track.querySelectorAll('.quali-phase-marker').forEach(d => d.remove());
+
+        if (!this.qualifyingManager || !this.maxTime || !this.minTime) return;
+        const range = this.maxTime - this.minTime;
+        if (range <= 0) return;
+
+        for (const phase of this.qualifyingManager.phases) {
+            // Phase start marker
+            const startPct = ((phase.start - this.minTime) / range) * 100;
+            const startEl = document.createElement('div');
+            startEl.className = 'quali-phase-marker';
+            startEl.style.cssText = `position:absolute;left:${startPct}%;top:-12px;font-size:8px;color:#aaa;transform:translateX(-50%)`;
+            startEl.textContent = phase.name;
+            track.appendChild(startEl);
+
+            // Phase end line
+            const endPct = ((phase.chequered - this.minTime) / range) * 100;
+            const lineEl = document.createElement('div');
+            lineEl.className = 'quali-phase-marker';
+            lineEl.style.cssText = `position:absolute;left:${endPct}%;top:0;bottom:0;width:1px;background:rgba(255,255,255,0.3)`;
+            track.appendChild(lineEl);
         }
     }
 
@@ -2756,6 +2928,12 @@ class F1RaceViewer {
     }
 
     formatTime(seconds) {
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    formatCountdown(seconds) {
         const mins = Math.floor(seconds / 60);
         const secs = Math.floor(seconds % 60);
         return `${mins}:${secs.toString().padStart(2, '0')}`;
@@ -3267,9 +3445,26 @@ class F1RaceViewer {
                 }
             }
 
-            // Show race time from lights out, or local time during pre-race
+            // Show timer: countdown for qualifying, count-up for race
             const timerEl = document.getElementById('raceTimer');
-            if (this.currentTime < this.lightsOutTime) {
+            if (this.isQualifying && this.qualifyingManager) {
+                const qm = this.qualifyingManager;
+                document.getElementById('lapCounter').textContent = qm.getPhaseLabel(this.currentTime);
+                if (qm.isIntermission(this.currentTime)) {
+                    timerEl.textContent = '--:--';
+                    timerEl.style.color = '';
+                } else {
+                    const countdown = qm.getCountdown(this.currentTime);
+                    timerEl.textContent = this.formatCountdown(Math.max(0, countdown));
+                    if (qm.isChequered(this.currentTime)) {
+                        timerEl.style.color = '#FFD700';
+                    } else if (countdown <= 60) {
+                        timerEl.style.color = '#FF4444';
+                    } else {
+                        timerEl.style.color = '';
+                    }
+                }
+            } else if (this.currentTime < this.lightsOutTime) {
                 // Pre-race: show local time
                 timerEl.textContent = this.sessionTimeToLocalTime(this.currentTime);
             } else {

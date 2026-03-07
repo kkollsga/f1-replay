@@ -464,6 +464,14 @@ body {
     color: #FFD700;
 }
 
+/* Qualifying elimination */
+.driver-row.eliminated {
+    opacity: 0.4;
+}
+.driver-row.eliminated .driver-name {
+    text-decoration: line-through;
+}
+
 /* Tire info display */
 .driver-tire {
     font-size: var(--time-size, 11px);
