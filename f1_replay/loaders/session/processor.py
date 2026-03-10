@@ -524,12 +524,12 @@ class SessionProcessor:
 
         # Extract session start time as ISO string (for timezone conversion in display)
         start_time_local = None
-        if hasattr(f1_session, "date") and f1_session.date is not None:
-            try:
-                # Store as ISO format for timezone conversion later
-                start_time_local = f1_session.date.isoformat()
-            except (AttributeError, ValueError):
-                pass
+        try:
+            session_date = f1_session.date
+            if session_date is not None:
+                start_time_local = session_date.isoformat()
+        except Exception:
+            pass
 
         metadata = SessionMetadata(
             session_type=session_type,
@@ -575,7 +575,10 @@ class SessionProcessor:
             warmup_start_offset = seconds from t0 to session scheduled start (positive value)
             session_duration = total telemetry duration
         """
-        t0_date = getattr(f1_session, "t0_date", None)
+        try:
+            t0_date = f1_session.t0_date
+        except Exception:
+            t0_date = None
 
         if t0_date is None:
             return None
